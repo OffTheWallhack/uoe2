@@ -308,7 +308,11 @@ function loop(now) {
   const rdt = Math.min(.25, (now - last) / 1000); if (now - last < 30) return; last = now;
   if (!W) return;
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
-  else { acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W); }
+  else {
+    acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W);
+    // after fast-forwarding, the test world runs ahead of the real clock (night at noon). At normal speed, bring its clock back.
+    if (speed === 1) { const tn = M.tickNow(W.S, Date.now()); if (W.S.tick > tn + 240) W.S.t0 -= (W.S.tick - tn) * 250; }
+  }
   for (const e of W.events) {
     if (e.k === "milestone") feed("🏆", e.title, e.txt);
     else if (e.k === "arrive" && e.p) feed("👋", e.p.name + " moved in");

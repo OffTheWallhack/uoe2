@@ -524,6 +524,7 @@ function drawPerson(x, y, p, fr) {
     else if (p.job === "fish") { ctx.fillStyle = "#cfd6d8"; for (let i = 0; i < 5; i++) ctx.fillRect(x + 2 + i, y - 7 + i, 1, 1); }
     else if (p.job === "berries" || p.job === "harvest" || p.job === "sow") px(ctx, x + 2, y - 3 + sw, 2, 2, "#8a5a30");
   }
+  if (p.state === "patrol") { px(ctx, x + 2, y - 5 + bob, 1, 2, "#3a2c22"); px(ctx, x + 2, y - 3 + bob, 2, 2, "#ffd27a"); px(ctx, x + 2, y - 3 + bob, 1, 1, "#fff4c0"); }
   if (p.pack && !p.carry) { px(ctx, x - 3, y - 7 + bob, 3, 3, "#7a5634"); px(ctx, x - 3, y - 7 + bob, 3, 1, "#a07848"); }
   if (p.carry) { const t = p.carry.type; px(ctx, x - 2, y - 8 + bob, 4, 2, t === "wood" ? "#9a6a3a" : t === "stone" ? "#9a9890" : "#b03a30"); px(ctx, x - 2, y - 8 + bob, 4, 1, t === "wood" ? "#c89a60" : t === "stone" ? "#c8c6c0" : "#7050a0"); }
 }
@@ -553,6 +554,7 @@ function flame(x, y, hour) { if (nightOf(hour) < .15) { px(ctx, x - 1, y, 3, 1, 
 function drawGlow(n, hour) {
   const S = W.S; ctx.globalCompositeOperation = "lighter";
   const glow = (x, y, r, a) => { x = (x - vx0) * k; y = (y - vy0) * k; r *= k; if (x < -r || y < -r || x > Vw + r || y > Vh + r) return; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, "rgba(255,170,70," + a + ")"); g.addColorStop(1, "rgba(255,110,40,0)"); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); };
+  for (const p of S.people) if (p.state === "patrol" && !p.inside) glow(sx(p.x, p.y) + 3, gyH(p.x, p.y) - 4, 18, .5 * n);
   for (const b of S.b) {
     if (!b.done) continue;
     const z = bH(b);

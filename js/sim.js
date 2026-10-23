@@ -370,11 +370,16 @@ const busy = new Map(); // runtime reservation counts, rebuilt each step
 const bkey = r => r ? (r.b ? "b" + r.b : r.l + r.c + ":" + r.i) : "";
 // ---------- villager brain ----------
 const frac = v => v - Math.floor(v);
-export const wakeAt = p => 5 + frac(p.id * .618) * 1.4 - (p.trait === "early riser" ? .5 : 0);
-export const sleepAt = p => Math.min(23.9, 22.4 + frac(p.id * .414) * 1.1 + (p.trait === "night owl" ? .5 : 0));
-const deepP = (p, h) => h >= sleepAt(p) || h < wakeAt(p);
+// Bedtimes are spread from 22:15 to about 1:30 (night owls later), wake-up from 4:30 to 6:30.
+// The night watchman (one per village) sleeps by day instead and walks his rounds with a lantern all night.
+export const wakeAt = p => p.watch ? 16.3 : 4.6 + frac(p.id * .618) * 1.8 - (p.trait === "early riser" ? .5 : 0);
+export const sleepAt = p => p.watch ? 9.3 : 22.25 + frac(p.id * .414) * 2.4 + (p.trait === "night owl" ? .9 : 0);
+const deepP = (p, h) => { if (p.watch) return h >= 9.3 && h < 16.3; if (h >= 12) return h >= sleepAt(p); if (h < wakeAt(p)) return h >= 3 || h + 24 >= sleepAt(p); return false; };
 const morningP = (p, h) => h >= wakeAt(p) && h < wakeAt(p) + .45;
-const evening = h => h >= 21.5;
+const nightWatch = (p, h) => p.watch && (h >= 21 || h < 5.6);
+const goesToInn = p => frac(p.id * .37 + .11) < .5;           // about half the village likes the tavern
+const innLeave = p => 22.4 + frac(p.id * .29) * 1.1;
+const evening = h => h >= 21.5 || h < 3;
 function night(h) { return h >= 21.5 || h < 6; }
 export function rallyStr(S) { if (!S.rally) return 0; const t = S.rally.t; return t < 60 ? 1 : Math.max(0, 1 - (t - 60) / 60); }
 function assignRoles(W) {
@@ -466,6 +471,12 @@ function pickJob(W, p, H) {
   p.job = job; p.obj = obj; if (obj) busy.set(bkey(obj), 1); p.tx = tx; p.ty = ty; p.state = "go";
   p.act = { fetch: "Fetching materials for a building", construct: "Building", sow: "Plowing and sowing the field", harvest: "Harvesting", wood: "Going to chop wood", stone: "Going to break stone", berries: "Going to pick berries", fish: "Going fishing", scout: "Exploring the land", rest: "Taking a break", plant: "Going to plant a young tree", tend: "Going to tend the sheep", honey: "Going to the beehives", visit: "Walking to " + (p.visitTo || "the other village") + " with a bundle", quarry: "Going to the quarry" }[job];
 }
+// the watchman's next stop: the door of some house or the fire of his village
+function nextRound(W, p) {
+  const S = W.S, tw = townOf(W, p), list = S.b.filter(b => b.done && b.town === tw.id && TYPES[b.type].beds || (b.done && b.town === tw.id && TYPES[b.type].hall));
+  const b = list.length ? list[(rnd(W) * list.length) | 0] : null, d = b ? doorOf(b) : { x: p.x, y: p.y };
+  p.tx = d.x + (rnd(W) - .5) * 2; p.ty = d.y + 1 + rnd(W); p.act = "Night watch: walking the rounds with a lantern";
+}
 function ckeyOf(o) { return o._k || ""; }
 function think(W, p, H) {
   const S = W.S, cm = camp(W);
@@ -473,16 +484,20 @@ function think(W, p, H) {
   if (p.state === "morning") { if (morningP(p, H)) return; p.state = "idle"; p.asleep = false; p.t = .3; }
   const chap = S.b.find(b => b.done && b.type === "chapel" && b.town === townOf(W, p).id);
   if (chap && clockOf(S).wd === 0 && H >= 9.5 && H < 10.6 && !p.carry && !["church", "tochurch", "sleep", "morning"].includes(p.state)) { p.obj = null; const d = doorOf(chap); p.state = "tochurch"; p.tx = d.x; p.ty = d.y; p.act = "Going to the Sunday service"; return; }
+  if (nightWatch(p, H) && p.state !== "toStore" && p.state !== "deliver") {
+    if (p.state !== "patrol") { p.obj = null; p.sit = false; p.asleep = false; p.inside = false; p.state = "patrol"; nextRound(W, p); }
+    return;
+  }
   if ((deepP(p, H) || evening(H)) && p.state !== "toStore" && p.state !== "deliver") {
     p.obj = null;
     const hb = S.b.find(b => b.id === p.home) || cm, hc = hb ? doorOf(hb) : { x: 0, y: 0 };
     if (deepP(p, H)) { if (p.state !== "bed" && p.state !== "sleep") { p.inside = false; p.state = "bed"; p.tx = hc.x; p.ty = hc.y; p.act = "Going home to sleep"; } return; }
     const tw = townOf(W, p), hall = hallOf(W, tw) || cm, inn = S.b.find(b => b.done && b.type === "tavern" && b.town === tw.id);
-    if (inn && H < 23.2) { if (p.state !== "toinn" && p.state !== "inn") { const d = doorOf(inn); p.state = "toinn"; p.tx = d.x + (rnd(W) - .5); p.ty = d.y; p.act = "Going to the tavern"; } return; }
+    if (inn && goesToInn(p) && H >= 12 && H < innLeave(p)) { if (p.state !== "toinn" && p.state !== "inn") { const d = doorOf(inn); p.state = "toinn"; p.tx = d.x + (rnd(W) - .5); p.ty = d.y; p.act = "Going to the tavern"; } return; }
     if (p.state !== "fire" && p.state !== "sit") { const f = hall ? center(hall) : { x: 0, y: 0 }, a = (p.id % 8) / 8 * 6.28 + .4; p.state = "fire"; p.tx = f.x + 2.2 + Math.cos(a) * 1.4; p.ty = f.y + 2.4 + Math.sin(a) * 1.1; p.act = "Going to the fire"; }
     return;
   }
-  if (["sit", "sleep", "bed", "fire", "inn", "toinn", "church", "tochurch"].includes(p.state)) { p.sit = false; p.asleep = false; p.inside = false; p.state = "idle"; }
+  if (["sit", "sleep", "bed", "fire", "inn", "toinn", "church", "tochurch", "patrol"].includes(p.state)) { p.sit = false; p.asleep = false; p.inside = false; p.state = "idle"; }
   if (p.carry) {
     if (p.carry.to) { const s = S.b.find(b => b.id === p.carry.to); if (s && isSite(s)) { const ws = workSpot(W, s); p.state = "deliver"; p.tx = ws.x; p.ty = ws.y; p.act = "Carrying " + p.carry.type + " to a building site"; return; } p.carry.to = 0; }
     const mill = p.carry.mill && S.b.find(b => b.id === p.carry.mill && b.done);
@@ -547,7 +562,8 @@ function updatePerson(W, p, H) {
     case "pioneer": { walk(W, p, spd * 1.1); if (p.revT <= .05) reveal(W, p.x, p.y, 5); const e = S.exp; if (!e) { p.state = "idle"; p.pioneer = 0; break; } if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1.2) { p.state = "camp"; p.act = "Waiting for the others at the new place"; } break; }
     case "camp": if (!S.exp) { p.state = "idle"; } break;
     case "toinn": case "tochurch": if (walk(W, p, spd)) { p.inside = true; p.state = p.state === "toinn" ? "inn" : "church"; p.act = p.state === "inn" ? "At the tavern, singing" : "At the Sunday service"; } else if (p.state === "toinn" && (!evening(H) || deepP(p, H))) think(W, p, H); break;
-    case "inn": if (!evening(H) || deepP(p, H) || H >= 23.2) { p.inside = false; think(W, p, H); } break;
+    case "inn": if (!evening(H) || deepP(p, H) || H < 12 || H >= innLeave(p)) { p.inside = false; p.state = "idle"; think(W, p, H); } break;
+    case "patrol": if (!nightWatch(p, H)) { p.state = "idle"; think(W, p, H); break; } if (p.t > 0) { p.t -= DT; break; } if (walk(W, p, spd * .7)) { p.t = 4 + rnd(W) * 10; nextRound(W, p); } break;
     case "church": if (H >= 10.6 || H < 9) { p.inside = false; p.state = "idle"; p.t = rnd(W) * 2; } break;
   }
   if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
@@ -648,6 +664,7 @@ function planTown(W, T) {
   const S = W.S, hall = hallOf(W, T); if (!hall) return;
   const c = center(hall), mine = S.b.filter(b => b.town === T.id), ppl = S.people.filter(p => townOf(W, p).id === T.id && !p.pioneer), n = ppl.length;
   const has = t => mine.some(b => b.type === t), cnt = t => mine.filter(b => b.type === t).length, first = T.id === 1;
+  if (n >= 6 && !ppl.some(p => p.watch)) { const w = ppl.find(p => p.trait === "night owl") || ppl[ppl.length - 1]; if (w) { w.watch = 1; addLog(W, w.name + " became the night watchman of " + T.name + ". Someone keeps a lantern lit all night."); } }
   if (mine.some(b => isSite(b) && b.by === "ai")) return;
   let beds = 0; for (const b of mine) if (b.done && TYPES[b.type].beds) beds += TYPES[b.type].beds;
   const free = beds - n;
@@ -681,6 +698,14 @@ function planTown(W, T) {
   if (S.ms.pop10 && !has("tavern") && n >= 10) L.push(["tavern", c, 5, 16]);
   if (S.ms.pop12 && !has("chapel") && n >= 12) L.push(["chapel", c, 7, 20]);
   if (cnt("field") * 5 < n - 2) L.push(["field", c, 6, 24]);
+  // a growing village keeps building: more workplaces, more storage when it is full, wells, lights for the night
+  const capFull = ["wood", "stone", "food"].some(k => S.res[k] >= capOf(W) * .9);
+  if (n >= 10 && has("store") && capFull && cnt("store") < 1 + Math.floor(n / 10)) { const t = near("trees", o => !o.felled, 26); L.push(["store", t ? { x: (t.x + c.x) / 2, y: (t.y + c.y) / 2 } : c, 4, 18]); }
+  if (n >= 12 && cnt("wcut") < 1 + Math.floor(n / 12)) { const t = pickNear(W, c.x + 8, c.y - 6, 30, "trees", o => !o.felled && !mine.some(b => b.type === "wcut" && Math.hypot(b.x - o.x, b.y - o.y) < 14), 1); if (t) L.push(["wcut", t.o, 2, 9]); }
+  if (n >= 12 && cnt("forage") < 1 + Math.floor(n / 14)) { const t = pickNear(W, c.x, c.y, 30, "bushes", o => !o.gone && !mine.some(b => b.type === "forage" && Math.hypot(b.x - o.x, b.y - o.y) < 12), 1); if (t) L.push(["forage", t.o, 2, 9]); }
+  if (S.ms.pop10 && n >= 14 && cnt("well") < Math.floor(n / 12)) L.push(["well", c, 5, 16]);
+  if (n >= 6 && cnt("torch") < Math.floor(n / 3)) L.push(["torch", c, 2, 6 + cnt("torch") * 1.5]);
+  if (S.ms.path && n >= 8 && cnt("bench") < Math.floor(n / 6)) L.push(["bench", c, 2, 10]);
   for (const [want, anchor, r0, r1] of L) {
     if (!afford(want)) continue;
     const site = findSite(W, want, anchor.x, anchor.y, r0, r1); if (!site) continue;
@@ -832,7 +857,7 @@ function expeditions(W) {
   const need = 12 + 8 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0);
   if (n < need || since < 288000) return; // at least ~20 hours between foundings
   const site = townSite(W); if (!site) { S.lastFound = S.tick - 200000; return; }
-  const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build");
+  const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch);
   if (cand.length < 6) return;
   const mem = cand.slice(-3), used = new Set(S.towns.map(t => t.name)), names = TOWN_NAMES.filter(q => !used.has(q)), name = names[(rnd(W) * names.length) | 0] || "Newtown " + (S.towns.length + 1);
   S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y };
