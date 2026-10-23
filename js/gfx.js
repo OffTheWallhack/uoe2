@@ -43,8 +43,8 @@ function finishOutline(S,col){
   for(let y=0;y<h;y++)for(let xx=0;xx<w;xx++){const i=y*w+xx;if(!al[i])continue;if(xx===0||y===0||xx===w-1||y===h-1||(!al[i-1]&&d[(i-1)*4+3]===0)||(!al[i+1]&&d[(i+1)*4+3]===0)||(!al[i-w]&&d[(i-w)*4+3]===0)){const o=i*4;d[o]*=.62;d[o+1]*=.6;d[o+2]*=.64}}
   x.putImageData(img,0,0);return{canvas:c,ax:w>>1,ay:h-2,w,h,wins:[],chim:null};
 }
-function spruce(size,v,season){
-  const P=PAL[season],hw=Math.round(6*size),h=Math.round(26*size),w=hw*2+3,S=canvasOf(w,h+3),tiers=h>30?4:3,th=(h-6)/tiers,cx=hw+1;
+function spruce(size,v,season,gold){
+  const P=gold&&!PAL[season].snow?{...PAL[season],tree:GOLDL}:PAL[season],hw=Math.round(6*size),h=Math.round(26*size),w=hw*2+3,S=canvasOf(w,h+3),tiers=h>30?4:3,th=(h-6)/tiers,cx=hw+1;
   for(let y=0;y<h-5;y++){
     const ti=Math.min(tiers-1,Math.floor(y/th)),ry=y-ti*th,hwT=(.5+.5*(ti+1)/tiers)*hw,wr=hwT*(.18+.82*ry/th);
     for(let x=Math.ceil(cx-wr);x<=Math.floor(cx+wr);x++){
@@ -58,9 +58,11 @@ function spruce(size,v,season){
   for(let x=-hw;x<=hw+1;x++)for(let y=0;y<2;y++){if(Math.abs(x)<hw*.8-y)put(S.img,w,cx+x+3,h-2+y,[0,0,0],46)}
   return finishOutline(S);
 }
-function oak(size,v,season,birch){
-  const P=PAL[season],r=Math.round(8*size),w=r*2+8,h=r*2+14,S=canvasOf(w,h),cx=r+3,cy=r+1;
-  const blobs=[[0,0,r],[-r*.55,r*.25,r*.7],[r*.55,r*.2,r*.7],[0,-r*.45,r*.65]];
+const GOLDL=[[112,70,22],[168,112,30],[214,160,48],[240,204,92]],MAPLE=[[120,34,24],[176,58,28],[214,104,36],[240,168,56]],WILLOW=[[58,80,36],[86,110,48],[124,148,64],[168,184,92]];
+function oak(size,v,season,birch,kind){
+  let P=PAL[season];if(kind==='maple'&&!P.snow)P={...P,leaf:MAPLE};if(kind==='willow'&&!P.snow)P={...P,leaf:WILLOW};
+  const r=Math.round((kind==='willow'?9:8)*size),w=r*2+8,h=r*2+14,S=canvasOf(w,h),cx=r+3,cy=r+1;
+  const blobs=kind==='willow'?[[0,-r*.15,r],[-r*.7,r*.15,r*.72],[r*.7,r*.1,r*.72]]:[[0,0,r],[-r*.55,r*.25,r*.7],[r*.55,r*.2,r*.7],[0,-r*.45,r*.65]];
   const bare=season==="winter";
   for(let y=0;y<h-4;y++)for(let x=0;x<w;x++){
     let best=null;
@@ -71,6 +73,7 @@ function oak(size,v,season,birch){
     let c=P.leaf[clamp(Math.round(L*3),0,3)];if(birch)c=mix(c,[200,220,120],.3);
     put(S.img,w,x,y,c);
   }
+  if(kind==='willow'&&!bare)for(let x=cx-r;x<=cx+r;x++){if((x+((v*7)|0))%2||ih(x*5,v*9)<.15)continue;let yb=-1;for(let y=h-6;y>=0;y--)if(S.img.data[(y*w+x)*4+3]){yb=y;break}if(yb<0)continue;const L=5+((ih(x,v*3+1)*7)|0);for(let y=yb-1;y<yb+L&&y<h-5;y++)put(S.img,w,x,y,y>yb+L-3?P.leaf[3]:P.leaf[(x+y)%3?0:1])}
   const tx=cx,ty0=cy+r-2;for(let y=ty0;y<h-2;y++){const c=birch?(y%3?[226,222,214]:[44,40,40]):[90,62,40];put(S.img,w,tx,y,c);put(S.img,w,tx+1,y,mul(c,.7))}
   for(let x=-r;x<=r+2;x++)for(let y=0;y<2;y++)if(Math.abs(x)<r*.9)put(S.img,w,cx+x+2,h-3+y,[0,0,0],46);
   return finishOutline(S);
@@ -317,6 +320,15 @@ function dwarf(size,v,season){
     if(P.snow&&best.dy<-.2&&ih(x*3,y+v*7)<.75)c=mix(c,SNOW,.85);put(S.img,w,x,y,c)}
   for(let x=2;x<w-2;x++)put(S.img,w,x,h-2,[0,0,0],40);
   const r=finishOutline(S);r.ay=h-3;return r}
+// ---- bog reeds with cranberries ----
+function reed(season,v,full){const w=12,h=11,S=canvasOf(w,h),sn=PAL[season].snow;
+  for(let i=0;i<6;i++){const x=1+i*2+((ih(i,v*5)*2)|0),L=5+((ih(v*3,i+1)*5)|0),lean=ih(i+2,v)<.5?-1:1;
+    for(let y=0;y<L;y++){const xx=x+(y>L*.6?lean:0);put(S.img,w,xx,h-3-y,sn?[150,128,92]:y%3===0?[96,128,52]:[74,106,44]);}
+    if(i%2===0&&L>6){const xx=x+lean;put(S.img,w,xx,h-3-L,[104,64,34]);put(S.img,w,xx,h-4-L,[124,78,40]);}
+    if(sn&&ih(i,v*7)<.6)put(S.img,w,x,h-3-L,[240,244,248]);}
+  if(full&&!sn)for(let i=0;i<4;i++)put(S.img,w,2+((ih(i,v*4)*8)|0),h-3+((ih(v,i)*1.4)|0),[196,36,52]);
+  for(let x=1;x<w-1;x++)put(S.img,w,x,h-2,[0,0,0],40);
+  const r=finishOutline(S);r.ay=h-3;return r}
 // ---- mushrooms in the birch grove ----
 function mush(season,v,full){const w=10,h=7,S=canvasOf(w,h);
   if(!full||PAL[season].snow){for(let i=0;i<3;i++)put(S.img,w,2+i*3,5,[200,190,170]);const r=finishOutline(S);r.ay=6;return r}
@@ -329,7 +341,7 @@ export function buildSprites(season){
   if(cache[season])return cache[season];
   const o={wagon:wagonModel(season),tent:tentModel(season),pit:firepit(season),stump:stump(season),
     spruce:[0,1,2].flatMap(v=>[spruce(.8,v,season),spruce(1,v,season),spruce(1.3,v,season)]),
-    oak:[0,1,2].flatMap(v=>[oak(.8,v,season),oak(1,v,season),oak(1.25,v,season)]),birch:[0,1].map(v=>oak(.9,v,season,true)),
+    oak:[0,1,2].flatMap(v=>[oak(.8,v,season),oak(1,v,season),oak(1.25,v,season)]),birch:[0,1].map(v=>oak(.9,v,season,true)),maple:[0,1,2].flatMap(v=>[oak(.8,v,season,false,'maple'),oak(1,v,season,false,'maple'),oak(1.25,v,season,false,'maple')]),willow:[0,1,2].flatMap(v=>[oak(.8,v,season,false,'willow'),oak(1,v,season,false,'willow'),oak(1.2,v,season,false,'willow')]),larch:[0,1,2].flatMap(v=>[spruce(.8,v,season,true),spruce(1,v,season,true),spruce(1.3,v,season,true)]),reed:[0,1,2].map(v=>reed(season,v,true)),reedBare:[0,1,2].map(v=>reed(season,v,false)),
     bush:[0,1,2].map(v=>bush(season,v,true)),bushBare:[0,1,2].map(v=>bush(season,v,false)),dwarf:[0,1,2].flatMap(v=>[dwarf(.8,v,season),dwarf(1,v,season),dwarf(1.25,v,season)]),mush:[0,1,2].map(v=>mush(season,v,true)),mushBare:[0,1,2].map(v=>mush(season,v,false)),
     rock:[0,1,2].map(v=>rock(v,season,false)),bigRock:[0,1,2].map(v=>rock(v,season,true)),
     wood:[1,2,3].map(woodpile),stone:[1,2,3].map(stoneheap),food:[0,1,2].map(baskets),bld:buildingSprites(season)};

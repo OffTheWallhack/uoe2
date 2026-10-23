@@ -53,6 +53,21 @@ export function desertV(x, y) {
   if (x * x + y * y < 4900) return -1; const n = vn(x - 6100, y + 2300, 55) - .5; if (n <= 0) return n;
   const e = baseElev(x, y); return e < SEA + .035 || e > SEA + .3 ? -1 : n;
 }
+// swamp: low wet ground near the water, far from the start
+export function swampV(x, y) {
+  if (x * x + y * y < 6400) return -1; const n = vn(x + 2100, y - 7300, 30) - .5; if (n <= -.18) return -1;
+  if (desertV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .008 || e > SEA + .14 ? -1 : n + .12;
+}
+// frozen tundra: permanent snow, more of it towards the highlands
+export function tundraV(x, y) {
+  if (x * x + y * y < 10000) return -1; const hl = clamp((-(x * DX + y * DY) - 40) / 400, 0, .06), n = vn(x - 3300, y + 5500, 52) - .5 + hl; if (n <= .2) return -1;
+  if (desertV(x, y) > 0 || swampV(x, y) > 0) return -1; return baseElev(x, y) < SEA + .02 ? -1 : n;
+}
+// golden grove: maples and larches in autumn colours
+export function groveV(x, y) {
+  if (x * x + y * y < 6400) return -1; const n = vn(x + 5300, y + 1900, 26) - .5; if (n <= -.02) return -1;
+  if (desertV(x, y) > 0 || swampV(x, y) > 0 || tundraV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .03 || e > SEA + .45 ? -1 : n + .1;
+}
 function baseElev(x, y) {
   let e = vn(x + 3000, y - 1000, 48) * .5 + vn(x, y, 14) * .3 + vn(x + 77, y + 33, 5) * .2;
   const d = x * DX + y * DY;
@@ -194,8 +209,25 @@ function genChunk(W, cx, cy) {
     if (desertV(jx, jy) > 0) { const r0 = ih(Math.floor(jx * 13) + SX, Math.floor(jy * 11) + SY); if (r0 > .993 && !steep(jx - .3, jy - .3, jx + .3, jy + .3)) ch.rocks.push({ x: jx, y: jy, v: r0, big: false, stone: 2 }); continue; }
     const r = ih(Math.floor(jx * 13) + SX, Math.floor(jy * 11) + SY), v = ih(Math.floor(x * 3) + SY, Math.floor(y * 3)), hz = heightAt(jx, jy), fd = fdV(jx, jy) - (hz > 30 ? (hz - 30) * .03 : 0), rk = rockV(jx, jy) + (hz > 24 ? (hz - 24) * .006 : 0);
     if (steep(jx - .3, jy - .3, jx + .3, jy + .3) || steep(jx + .3, jy - .3, jx - .3, jy + .3)) continue;
-    if (rk > .72) { if (r < .14) ch.rocks.push({ x: jx, y: jy, v, big: r < .08, stone: r < .08 ? 6 : 2 }); continue; }
+    if (rk > .72 && !(swampV(jx, jy) > 0)) { if (r < .14) ch.rocks.push({ x: jx, y: jy, v, big: r < .08, stone: r < .08 ? 6 : 2 }); continue; }
     if (riverD(jx, jy) < riverW(jx, jy) + .8) continue;
+    if (swampV(jx, jy) > 0) { // swamp: bog willows, reeds with cranberries, a few stones
+      if (r < .08) ch.trees.push({ x: jx, y: jy, t: "willow", s: .85 + ih(Math.floor(x), Math.floor(y)) * .45, v, logs: 2, felled: false, regrow: 0, cleared: false });
+      else if (r < .19) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0, bog: true });
+      else if (r > .992) ch.rocks.push({ x: jx, y: jy, v, big: false, stone: 2 });
+      continue;
+    }
+    if (tundraV(jx, jy) > 0) { // frozen tundra: lone frost spruces and stones
+      if (r < .045) ch.trees.push({ x: jx, y: jy, t: "fspruce", s: .8 + ih(Math.floor(x), Math.floor(y)) * .5, v, logs: 3, felled: false, regrow: 0, cleared: false });
+      else if (r > .993) ch.rocks.push({ x: jx, y: jy, v, big: false, stone: 2 });
+      continue;
+    }
+    if (groveV(jx, jy) > 0 && hz < 30) { // golden grove: maples and larches, boletes underneath
+      const gv = groveV(jx, jy);
+      if (r < .16 + gv * .25) ch.trees.push({ x: jx, y: jy, t: r < .12 ? "larch" : "maple", s: .85 + ih(Math.floor(x), Math.floor(y)) * .5, v, logs: 3, felled: false, regrow: 0, cleared: false });
+      else if (r > .955) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0, mush: true });
+      continue;
+    }
     if (alpineV(hz)) { // dwarf pine patches, a few spruces, blueberries
       const dw = vn(jx + 600, jy, 4);
       if (dw > .6 && r < .6) ch.trees.push({ x: jx, y: jy, t: "dwarf", s: .8 + ih(Math.floor(x), Math.floor(y)) * .5, v, logs: 1, felled: false, regrow: 0, cleared: false });
@@ -1190,6 +1222,11 @@ export function step(W) {
   if (S.phase === "settled") {
     const chap = S.b.find(b => b.done && b.type === "chapel");
     if (chap) { const prev = clockOf(S, S.tick - 1).hour; if ((prev < 18 && H >= 18) || (clockOf(S).wd === 0 && prev < 9.5 && H >= 9.5)) W.events.push({ k: "bell", b: chap }); }
+    if (S.tick % 40 === 0 && (!S.ms.swamp || !S.ms.tundra || !S.ms.grove)) for (const p of S.people) {
+      if (!S.ms.swamp && swampV(p.x, p.y) > 0) milestone(W, "swamp", "The Bog", "The villagers waded into a bog. Cranberries grow among the reeds.");
+      else if (!S.ms.tundra && tundraV(p.x, p.y) > 0) milestone(W, "tundra", "Frozen Lands", "The snow here never melts. Only frost spruces grow.");
+      else if (!S.ms.grove && groveV(p.x, p.y) > 0) milestone(W, "grove", "Golden Grove", "Maples and larches glow red and gold, in every season.");
+    }
     if (!S.ms.flowers && S.tick % 40 === 0 && S.people.some(p => flowerV(p.x, p.y) > .45)) milestone(W, "flowers", "Flower Meadow", "The villagers found a meadow full of flowers. The Apiary is unlocked.");
   }
 }
