@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Usage of Empires II</title>
+<meta name="description" content="A cozy medieval village that lives on its own, in real time. Watch the Mayor's village grow.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Young+Serif&display=swap">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%233a2a1c'/%3E%3Cpath d='M3 12h10V8L8 4 3 8z' fill='%23f0b45a'/%3E%3C/svg%3E">
+<style>
+/* One dark, medieval-tinted look: dark wood frames, parchment panels, amber accents. In-game text is English. */
+:root{
+  --bg:#0c0f0c; --panel:#141a15; --panel2:#1b231c; --line:#2a352b;
+  --fg:#e6e2d4; --mute:#9aa596; --amber:#f0b45a; --parch:#efe2c2; --ink:#2a2014; --wood:#3a2a1c; --wood2:#4a3624; --edge:#6a4e32;
+  --display:"Young Serif",Georgia,serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--body);margin:0;padding:16px max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px}
+h1{font:400 clamp(26px,5vw,40px)/1.05 var(--display);margin:0}
+h1 span{color:var(--amber)}
+.modeline{font:13px var(--mono);color:var(--mute)}
+.stage{position:relative;border:2px solid var(--wood2);border-radius:6px;overflow:hidden;background:#1b2326;height:clamp(440px,78vh,860px);touch-action:none;user-select:none;-webkit-user-select:none}
+#cv{display:block;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;cursor:grab}
+#cv.drag{cursor:grabbing}
+.chips{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap;pointer-events:none;max-width:calc(100% - 64px)}
+.chip{display:flex;align-items:center;gap:6px;background:linear-gradient(#4a3624,#3a2a1c);border:1px solid var(--edge);border-radius:4px;padding:3px 9px 3px 6px;font:500 13px var(--mono);color:var(--parch);box-shadow:0 1px 0 #000}
+.chip i{width:10px;height:10px;display:inline-block;border:1px solid #000}
+.chip small{font:11px var(--body);color:#c8b48c}
+.chip.low{border-color:#d0603a;color:#ffb39a}
+.zoom{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.zoom button,.tb{min-width:34px;height:32px;font:600 15px var(--mono);background:linear-gradient(#4a3624,#3a2a1c);color:var(--parch);border:1px solid var(--edge);border-radius:4px;cursor:pointer;padding:0 8px}
+.zoom button:hover,.tb:hover{border-color:var(--amber)}
+.zoom .zl{font:12px var(--mono);color:var(--parch);background:rgba(20,14,8,.75);padding:1px 6px;border-radius:3px;text-align:center}
+.zoom .world{font:500 12px var(--body)}
+.banner{position:absolute;left:50%;top:48px;transform:translateX(-50%);background:rgba(239,226,194,.96);color:var(--ink);border:2px solid var(--edge);border-radius:4px;padding:7px 14px;text-align:center;max-width:min(460px,calc(100% - 100px));pointer-events:none;box-shadow:0 2px 0 rgba(0,0,0,.4)}
+.banner span{display:block;font:15px/1.3 var(--display)}
+.banner i{display:block;font:italic 12.5px var(--body);color:#6a5434;margin-top:2px}
+.toast{position:absolute;left:50%;top:116px;transform:translateX(-50%);background:linear-gradient(#4a3624,#2e2116);border:2px solid var(--amber);border-radius:5px;padding:8px 16px;text-align:center;pointer-events:none;min-width:220px;max-width:calc(100% - 24px)}
+.toast b{display:block;font:400 17px var(--display);color:var(--amber)}
+.toast span{font-size:13px;color:var(--parch)}
+.toast.in{animation:pop .35s ease-out}
+@keyframes pop{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.toast.in{animation:none}}
+.bigbtn{font:16px var(--display);background:linear-gradient(#f6c46a,#d8953a);color:#2a1a08;border:2px solid var(--edge);border-radius:5px;padding:9px 22px;cursor:pointer;box-shadow:0 2px 0 #000}
+.bigbtn:disabled{filter:grayscale(.8) brightness(.7);cursor:default}
+#settle{position:absolute;left:50%;bottom:48px;transform:translateX(-50%)}
+.placebar{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);display:flex;gap:8px}
+.placebar .tb{height:40px}
+.actions{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.rally{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.rally .lab{font:12px var(--mono);color:var(--parch);background:rgba(20,14,8,.75);padding:2px 7px;border-radius:3px}
+.rally button,#buildbtn{font:500 13px var(--body);background:linear-gradient(#4a3624,#3a2a1c);color:var(--parch);border:1px solid var(--edge);border-radius:4px;padding:6px 10px;cursor:pointer}
+.rally button:hover,.rally button.on,#buildbtn:hover{border-color:var(--amber);color:var(--amber)}
+#buildbtn{font:15px var(--display);padding:7px 16px;background:linear-gradient(#f6c46a,#d8953a);color:#2a1a08}
+.panel{position:absolute;background:rgba(239,226,194,.98);color:var(--ink);border:2px solid var(--edge);border-radius:5px;box-shadow:0 3px 0 rgba(0,0,0,.45)}
+.buildmenu{right:8px;bottom:96px;width:min(320px,calc(100% - 16px));max-height:calc(100% - 150px);overflow:auto;padding:8px}
+.buildmenu h3{font:400 17px var(--display);margin:2px 4px 6px}
+.bitem{display:block;width:100%;text-align:left;background:#f7edd2;border:1px solid #c9b48a;border-radius:4px;padding:6px 9px;margin:0 0 5px;cursor:pointer;color:var(--ink)}
+.bitem b{display:block;font:400 15px var(--display)}
+.bitem small{font:12px var(--body);color:#6a5434}
+.bitem:hover,.bitem.on{border-color:#b07a2a;background:#fff4d8}
+.bitem.locked{opacity:.55;cursor:default}
+.panel .close{position:absolute;right:6px;top:4px;background:none;border:0;font:20px var(--body);color:var(--ink);cursor:pointer}
+.sel{left:8px;bottom:44px;width:min(300px,calc(100% - 16px));padding:10px 12px}
+.sel b{font:400 17px var(--display)}
+.sel p{margin:4px 0 6px;font-size:13px}
+.sel small{display:block;font-size:12px;color:#6a5434;margin-top:4px}
+.crops{display:flex;gap:5px;flex-wrap:wrap}
+.crops button,.sel .cancel{font:13px var(--body);background:#f7edd2;border:1px solid #c9b48a;border-radius:4px;padding:4px 9px;cursor:pointer;color:var(--ink)}
+.crops button.on{background:#d8953a;border-color:#8a5a1a;color:#2a1a08}
+.sel .cancel{margin-top:6px;border-color:#b85a3a;color:#8a2a14}
+.hud{position:absolute;left:8px;bottom:8px;font:12px var(--mono);color:var(--parch);background:rgba(20,14,8,.78);padding:3px 8px;border-radius:3px;pointer-events:none;display:flex;gap:8px;align-items:center}
+.net{font:11px var(--mono);padding:0 5px;border-radius:3px}.net.ok{background:#2e5a2a;color:#cfe8c8}.net.bad{background:#6a2a20;color:#ffd0c0}
+.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,10,8,.7);font:14px var(--mono);color:var(--amber)}
+.busyact{position:absolute;right:8px;top:150px;font:12px var(--mono);color:var(--amber);background:rgba(20,14,8,.8);padding:3px 8px;border-radius:3px}
+.tip{position:absolute;max-width:250px;pointer-events:none;background:rgba(239,226,194,.97);color:var(--ink);border:2px solid var(--edge);border-radius:4px;padding:6px 10px;font-size:12.5px;line-height:1.4;z-index:5}
+.tip b{display:block;font:400 14px var(--display);margin-bottom:1px}
+.modal{position:absolute;inset:0;background:rgba(6,8,6,.55);display:flex;align-items:center;justify-content:center;z-index:6;padding:16px}
+.modal .card2{background:var(--parch);color:var(--ink);border:3px solid var(--edge);border-radius:6px;padding:16px 18px;max-width:420px;width:100%;box-shadow:0 4px 0 #000}
+.modal h2{font:400 21px var(--display);margin:0 0 8px}
+.modal ul{margin:0 0 12px;padding-left:18px;font-size:14px}.modal li{margin:3px 0}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;align-items:end;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.controls label{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--mute);min-width:0}
+.controls .row{flex-direction:row;align-items:center;gap:6px}
+select,.btn{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;font:14px var(--body)}
+.btn{cursor:pointer}.btn:hover{border-color:var(--amber)}
+input[type=range]{width:100%;accent-color:var(--amber)}
+.cols{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}.cols>*{min-width:0}
+@media (max-width:760px){.cols{grid-template-columns:1fr}.placebar,#settle{bottom:40px}.banner{top:94px;max-width:calc(100% - 24px)}.toast{top:160px}.sel{bottom:96px}}
+.card{border:1px solid var(--line);border-radius:6px;padding:14px 16px;background:var(--panel)}
+.card h2{font:400 19px/1.2 var(--display);margin:0 0 8px}
+.card p{margin:0 0 8px;color:var(--mute);font-size:14px}
+.card ul{margin:0;padding-left:18px;font-size:14px}.card li{margin:3px 0}
+.feed{list-style:none!important;padding:0!important;font:12.5px/1.5 var(--mono);display:flex;flex-direction:column;gap:3px;min-height:9em}
+.feed b{color:var(--amber);font-weight:500}
+footer{color:var(--mute);font-size:12px;text-align:center}
+footer a{color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Usage of Empires <span>II</span></h1><span class="modeline" id="modeline"></span></header>
+  <div class="stage" id="stage">
+    <canvas id="cv" aria-label="The village, pixel-art isometric view"></canvas>
+    <div class="chips">
+      <div class="chip" id="food"><i style="background:#c0503a"></i><span id="rfood">0</span><small>Food</small></div>
+      <div class="chip"><i style="background:#a8743e"></i><span id="rwood">0</span><small>Wood</small></div>
+      <div class="chip"><i style="background:#9a9890"></i><span id="rstone">0</span><small>Stone</small></div>
+      <div class="chip"><i style="background:#e8c890"></i><span id="rpop">0</span><small>Villagers</small></div>
+      <div class="chip"><small>Storage</small><span id="cap"></span></div>
+    </div>
+    <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><span class="zl" id="zl"></span><button id="zout" aria-label="Zoom out">−</button><button id="zworld" class="world">World</button><button id="center" class="world">Village</button></div>
+    <div class="banner" id="banner" hidden></div>
+    <div class="toast" id="toast" hidden></div>
+    <button class="bigbtn" id="settle" hidden>Settle here</button>
+    <div class="placebar" id="placebar" hidden><button class="bigbtn" id="placebtn">Place</button><button class="tb" id="placecancel">Cancel</button></div>
+    <div class="actions" id="actions">
+      <div class="rally" id="rally" hidden><span class="lab">Rally:</span><button data-r="wood">Wood</button><button data-r="food">Food</button><button data-r="stone">Stone</button><button data-r="build">Build</button></div>
+      <button id="buildbtn" hidden>Build</button>
+    </div>
+    <div class="panel buildmenu" id="buildmenu" hidden><button class="close" id="bclose" aria-label="Close">×</button><h3>What should they build?</h3><div id="blist"></div></div>
+    <div class="panel sel" id="sel" hidden></div>
+    <div class="hud"><span id="hud"></span><span class="net" id="net" hidden>…</span></div>
+    <div class="busyact" id="busyact" hidden>Sending to the village…</div>
+    <div class="tip" id="tip" hidden></div>
+    <div class="modal" id="wb" hidden><div class="card2"><h2 id="wbtitle"></h2><ul id="wblist"></ul><button class="bigbtn" id="wbok">Back to the village</button></div></div>
+    <div class="busy" id="busy">Waking up the valley…</div>
+  </div>
+  <div class="controls" id="dev" hidden>
+    <label>Čas (náhľad) <input type="range" id="tsl" min="0" max="23.9" step="0.1" value="12"></label>
+    <label class="row"><input type="checkbox" id="real" checked> Reálny čas</label>
+    <label>Ročné obdobie<select id="season"><option value="">Podľa dátumu</option><option value="spring">Jar</option><option value="summer">Leto</option><option value="autumn">Jeseň</option><option value="winter">Zima</option></select></label>
+    <label>Počasie<select id="weather"><option value="">Automaticky</option><option value="clear">Jasno</option><option value="cloudy">Zamračené</option><option value="rain">Dážď</option><option value="snow">Sneženie</option><option value="fog">Hmla</option></select></label>
+    <label>Rýchlosť<select id="speed"><option value="1">1× (reálne)</option><option value="10">10×</option><option value="60">60×</option><option value="240">240×</option></select></label>
+    <label><button class="btn" id="neww">Nový náhodný svet</button></label>
+  </div>
+  <div class="cols">
+    <section class="card"><h2>Village log</h2><ul class="feed" id="feed"></ul></section>
+    <section class="card"><h2>About</h2>
+      <p>A medieval village that lives on its own, in real time. The villagers gather, farm, explore and build what they need. Paths appear where they walk. The Mayor only helps: picks crops, orders buildings, calls a rally.</p>
+      <ul><li>Drag to move, wheel or + / − to zoom, World to see everything explored.</li><li>Tap anything to learn what it is.</li><li>Day, night and seasons follow the real clock in Bratislava.</li></ul>
+    </section>
+  </div>
+  <footer>Usage of Empires II · an idle village by Robert Ďurica</footer>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
