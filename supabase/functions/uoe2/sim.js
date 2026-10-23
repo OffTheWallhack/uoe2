@@ -812,12 +812,18 @@ export const WONDERS = {
   obelisk:    { name: "Sky Obelisk", d: "A tall pale stone, carved with suns and spirals.", rumor: "a tall carved stone", ok: (x, y, h) => dry(x, y) && flat(x, y) && h < 14 },
   lighthouse: { name: "Old Lighthouse", d: "A round tower on the shore. Its lamp went dark long ago.", rumor: "an old lighthouse on the shore", ok: (x, y, h) => coast(x, y) },
   arch:       { name: "Stone Arch", d: "A bridge of rock, made by wind and a very long time.", rumor: "a rock arch like a bridge", ok: (x, y, h) => dry(x, y) && h >= 18 && h < 38 },
-  pyramid:    { name: "Sand Pyramid", d: "A stepped pyramid of golden stone rising from the dunes. A dark door waits at the top of the stairs.", rumor: "a golden mountain of stone, built by hands, in the sand", cr: 9, ok: (x, y, h) => desertV(x, y) > .04 && !wet(x, y) && flat(x, y) },
+  pyramid:    { name: "Sand Pyramid", d: "A stepped pyramid of golden stone rising from the dunes. A dark door waits at the top of the stairs.", rumor: "a golden mountain of stone, built by hands, in the sand", cr: 9, big: [(x, y) => desertV(x, y) > 0, .4, .8], ok: (x, y, h) => desertV(x, y) > .04 && !wet(x, y) && flat(x, y) },
   tisland:    { name: "Island Temple", d: "A white temple on a small island far out at sea. Only a ship can reach it.", rumor: "a white temple on an island far out at sea", cr: 6, ok: (x, y, h) => !isWater(x, y) && flat(x, y) },
-  wtemple:    { name: "Wooden Temple", d: "A tall temple of dark timber, hidden deep in the forest. Wind chimes ring under its roofs.", rumor: "a temple of black timber deep in the forest", cr: 8, ok: (x, y, h) => dry(x, y) && flat(x, y) && h < 20 && fdV(x, y) > .55 && birchV(x, y) < .3 },
+  wtemple:    { name: "Wooden Temple", d: "A tall temple of dark timber, hidden deep in the forest. Wind chimes ring under its roofs.", rumor: "a temple of black timber deep in the forest", cr: 8, big: [(x, y) => fdV(x, y) > .55 && birchV(x, y) < .3 && !wet(x, y) && heightAt(x, y) < 22, .25, .8], ok: (x, y, h) => dry(x, y) && flat(x, y) && h < 20 && fdV(x, y) > .55 && birchV(x, y) < .3 },
+  swamphut:   { name: "Stilt Hut", d: "A crooked hut on tall stilts above the black water. A green lantern burns in the window, day and night.", rumor: "a hut on stilts in the bog, with a green light", cr: 7, big: [(x, y) => swampV(x, y) > 0, .18, .9], ok: (x, y, h) => swampV(x, y) > 0 && dry(x, y) && flat(x, y) },
+  icespires:  { name: "Ice Spires", d: "Spires of blue ice that never melt. They hum when the wind blows through them.", rumor: "blue towers of ice that sing in the wind", cr: 8, big: [(x, y) => tundraV(x, y) > 0, .25, .9], ok: (x, y, h) => tundraV(x, y) > 0 && dry(x, y) && flat(x, y) && h < 36 },
+  goldtree:   { name: "The Golden Tree", d: "A tree taller than a church, every leaf pure gold. The leaves fall like slow rain and never run out.", rumor: "a tree with leaves of gold", cr: 8, big: [(x, y) => groveV(x, y) > 0, .3, .9], ok: (x, y, h) => groveV(x, y) > 0 && dry(x, y) && flat(x, y) && h < 30 },
 };
 for (const k of ["stones", "falls", "elder", "ruins", "spring", "crystal", "bones", "fairy", "shrine", "obelisk", "lighthouse", "arch"]) WONDERS[k].cr = WONDERS[k].cr || 5;
 const CLASSIC = Object.keys(WONDERS).slice(0, 12);
+const BIGK = Object.keys(WONDERS).filter(k => WONDERS[k].big);
+// how much of a region (48x48) is covered by a biome: only huge stretches of it can hide a wonder
+const bigFrac = (rx, ry, f) => { let n = 0; for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) if (f(rx * RG + 4 + i * 8 + 1, ry * RG + 4 + j * 8 + 1)) n++; return n / 36; };
 export const WONDER_KINDS = Object.keys(WONDERS);
 export function wonderIn(W, rx, ry) {
   const cache = W.wc || (W.wc = new Map()), key = rx + "," + ry; if (cache.has(key)) return cache.get(key);
@@ -825,9 +831,10 @@ export function wonderIn(W, rx, ry) {
   let res = null; const keepOver = OVER; OVER = new Map(); // wonders belong to the land itself, never to what villagers changed
   try {
     const isl = islandOf(rx, ry);
-    if (Hh(1) < .62 || (isl && Hh(7) < .6)) {
-      const k0 = Math.floor(Hh(2) * CLASSIC.length), order = [];
-      if (isl && isl.r >= 9.5 && Hh(8) < .4) order.push("tisland"); if (Hh(5) < .6) order.push("pyramid"); if (Hh(6) < .3) order.push("wtemple");
+    const pre = []; if (isl && isl.r >= 9.5 && Hh(8) < .4) pre.push("tisland");
+    BIGK.forEach((kk, bi) => { const bg = WONDERS[kk].big; if (Hh(301 + bi) < bg[2] && bigFrac(rx, ry, bg[0]) >= bg[1]) pre.push(kk); });
+    if (pre.length || Hh(1) < .62 || (isl && Hh(7) < .6)) {
+      const k0 = Math.floor(Hh(2) * CLASSIC.length), order = pre.slice();
       for (let j = 0; j < CLASSIC.length; j++) order.push(CLASSIC[(k0 + j) % CLASSIC.length]);
       outer: for (let j = 0; j < order.length; j++) {
         const kind = order[j], def = WONDERS[kind];
@@ -856,7 +863,7 @@ function foundWonder(W, w, p) {
   milestone(W, "wonder1", "A Wonder of the World", "Word of the " + def.name + " will travel. Newcomers arrive a little faster.");
   if (n >= 4) milestone(W, "wonder4", "Four Wonders", "Travellers talk about your valley now.");
   if (n >= 8) milestone(W, "wonder8", "Eight Wonders", "Your people have seen more of the world than anyone.");
-  if (new Set(S.wonders.map(q => q.k)).size >= WONDER_KINDS.length) milestone(W, "wonderAll", "Every Kind of Wonder", "Fifteen wonders, each one different.");
+  if (new Set(S.wonders.map(q => q.k)).size >= WONDER_KINDS.length) milestone(W, "wonderAll", "Every Kind of Wonder", WONDER_KINDS.length + " wonders, each one different.");
   if (S.rumor && S.rumor.id === w.id) S.rumor = null;
   if (p.trek === 1 && S.trek) { S.trek.rest = 120 + rnd(W) * 180; S.trek.restAct = "Marvelling at the " + def.name; S.trek.found.push(w.id); }
 }

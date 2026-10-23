@@ -31,7 +31,30 @@ function mk(w, h) {
   };
   return { w, h, put, rect, blob, slab, iso, finish, shadow };
 }
+Object.assign(WSIZE, { swamphut: [58, 66], icespires: [56, 70], goldtree: [76, 88] });
 const DRAW = {
+  swamphut(g) { const { w, h } = g, cx = 29; g.blob(cx, h - 9, 27, 7, [50, 68, 60], 1); g.blob(cx - 8, h - 10, 8, 2, [104, 132, 118], 2); g.blob(cx + 11, h - 8, 5, 1, [84, 110, 98], 3);
+    const DW = [84, 60, 42], PL = [126, 94, 62], WALL = [118, 90, 60], TH = [156, 132, 66];
+    [[12, 30], [22, 34], [36, 34], [46, 30]].forEach(([x, y0], i) => { g.slab(x, y0 + 8, 3, h - 9 - (y0 + 8), DW, i + 1); g.put(x + 1, h - 10, [30, 40, 34], 150); });
+    for (let k = 0; k < 5; k++) g.rect(11 + k * 8, h - 22 + (k % 2), 6, 1, rgb(DW, 1.2));
+    g.iso(cx, 46, 22, 11, 3, rgb(PL, 1.04), rgb(PL, .74), rgb(PL, 1.12), 2);
+    g.iso(cx, 42, 14, 7, 13, rgb(WALL, 1.04), rgb(WALL, .76), rgb(WALL, 1.1), 3);
+    g.rect(cx - 9, 34, 4, 4, [170, 255, 150]); g.rect(cx - 8, 35, 2, 2, [230, 255, 200]); g.rect(cx + 5, 33, 4, 7, [46, 34, 28]);
+    g.iso(cx, 24, 19, 9, 3, rgb(TH, 1.04), rgb(TH, .74), rgb(TH, 1.12), 4); g.blob(cx - 1, 12, 12, 8, rgb(TH, .96), 5); g.blob(cx + 2, 9, 7, 5, rgb(TH, 1.1), 6); g.rect(cx + 3, 1, 1, 6, [70, 54, 40]);
+    g.rect(52, 28, 1, 22, DW); g.rect(51, 25, 3, 3, [150, 255, 120]); g.put(52, 26, [235, 255, 210]); for (let i = 0; i < 6; i++) g.put(48 + ((ih(i, 3) * 8) | 0), 22 + ((ih(i, 5) * 8) | 0), [170, 255, 150], 120);
+    for (let k = 0; k < 8; k++) { g.rect(cx + 14, 48 + k * 2, 5, 1, rgb(DW, 1.25)); } g.rect(cx + 14, 46, 1, 18, DW); g.rect(cx + 18, 46, 1, 18, DW);
+    for (let i = 0; i < 7; i++) { const x = 4 + i * 8 + ((ih(i, 9) * 4) | 0), L = 5 + ((ih(i, 2) * 6) | 0); for (let y = 0; y < L; y++) g.put(x, h - 8 - y, y % 3 ? [74, 106, 44] : [96, 128, 52]); if (i % 2 === 0) { g.put(x, h - 9 - L, [104, 64, 34]); g.put(x, h - 10 - L, [124, 78, 40]); } } },
+  icespires(g) { const { w, h } = g; g.blob(28, h - 8, 26, 6, [226, 236, 246], 1); g.shadow(28, h - 7, 24, 5);
+    const ICE = [[16, 44, 6, 42], [40, 46, 6, 36], [28, 52, 8, 62], [8, 50, 4, 24], [48, 50, 4, 28]];
+    ICE.forEach(([cx, by, hw, ht], i) => { const top = by - ht; for (let y = top; y <= by; y++) { const t = (y - top) / ht, half = Math.max(0, Math.round(hw * Math.pow(t, .8))); for (let x = -half; x <= half; x++) { const side = half ? x / half : 0; let col = side < -.2 ? [196, 232, 252] : side > .35 ? [96, 150, 214] : [140, 198, 240]; col = rgb(col, 1.08 - t * .16 + (ih(cx + x, y) - .5) * .08); if (Math.abs(x) === half) col = rgb(col, .9); g.put(cx + x, y, col, 232); } }
+      for (let y = top + 4; y < by - 4; y += 7) g.put(cx - 1, y, [236, 248, 255]); g.put(cx, top, [250, 254, 255]); });
+    for (let i = 0; i < 8; i++) g.put(4 + ((ih(i, 11) * 48) | 0), 6 + ((ih(i, 13) * 50) | 0), [255, 255, 255], 200); },
+  goldtree(g) { const { w, h } = g, cx = 38; g.shadow(cx, h - 8, 30, 7);
+    g.slab(cx - 7, 44, 14, h - 8 - 44, [112, 78, 46], 1); g.slab(cx - 14, h - 14, 10, 8, [104, 72, 44], 2); g.slab(cx + 4, h - 14, 10, 8, [96, 66, 40], 3);
+    const GL = [[0, 0, 28, 20, [236, 188, 56]], [-20, 10, 16, 12, [222, 160, 40]], [20, 8, 16, 12, [226, 166, 44]], [-8, -14, 18, 12, [250, 214, 100]], [10, -12, 14, 10, [244, 200, 80]], [0, 16, 22, 8, [200, 130, 30]]];
+    GL.forEach(([dx, dy, rx, ry, col], i) => g.blob(cx + dx, 30 + dy, rx, ry, col, i + 4));
+    for (let i = 0; i < 40; i++) { const x = 8 + ((ih(i, 3) * 60) | 0), y = 12 + ((ih(i, 7) * 50) | 0); g.put(x, y, ih(i, 9) < .5 ? [255, 236, 140] : [255, 206, 70]); }
+    for (let i = 0; i < 14; i++) g.put(6 + ((ih(i, 21) * 64) | 0), 52 + ((ih(i, 23) * 28) | 0), [255, 214, 90], 200); },
   pyramid(g) { const { w, h } = g, cx = 42, by = h - 3; g.shadow(cx, by - 6, 38, 10);
     const GOLD = [214, 176, 98]; let hw = 38, y = by;
     for (let i = 0; i < 5; i++) { const hh = hw / 2, ht = i === 4 ? 5 : 6; g.iso(cx, y, hw, hh, ht, rgb(GOLD, 1.02), rgb(GOLD, .74), rgb(GOLD, 1.18), i + 1); const nh = (hw - 6) / 2; y = y - ht - (hh - nh); hw -= 6; }
@@ -94,7 +117,7 @@ const DRAW = {
     for (let x = 4; x < 60; x++) { const t = (x - 4) / 56, top = 8 + Math.round(Math.pow(Math.abs(t - .5) * 2, 2) * 16), bot = top + 10 + Math.round(Math.abs(t - .5) * 8); for (let y = top; y < bot; y++) g.put(x, y, rgb([196, 156, 112], 1.1 - (y - top) / 14 * .3 - t * .18 + (ih(x, y) - .5) * .1)); }
     g.rect(24, 6, 16, 2, MOSS); g.rect(4, 20, 16, 2, MOSS); },
 };
-const ANCH = { pyramid: 22, tisland: 15, wtemple: 15 }; // distance from the bottom of the canvas up to the footprint centre
+const ANCH = { pyramid: 22, tisland: 15, wtemple: 15, swamphut: 10 }; // distance from the bottom of the canvas up to the footprint centre
 const cache = {}, art = {};
 export function wonderSprites(season) {
   const key = season === "winter" ? "w" : "n"; if (cache[key]) return mergeArt(cache[key]);
