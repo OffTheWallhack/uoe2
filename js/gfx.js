@@ -229,6 +229,62 @@ function bench(season){const w=12,h=7,S=canvasOf(w,h);
 function torchPost(season){const w=5,h=16,S=canvasOf(w,h);
   for(let y=4;y<h;y++){put(S.img,w,2,y,[96,66,40]);put(S.img,w,3,y,[70,48,30])}for(let x=1;x<4;x++)put(S.img,w,x,3,[60,44,30]);
   const r=finishOutline(S);r.ax=2;r.ay=h-1;r.flame=[2,1];return r}
+// ---- windmill ----
+function millModel(o,season){
+  const H=o.H,hw0=1.35,hw1=.82,cx=o.a/2,cy=o.b/2,rr=o.rr,P=PAL[season],snow=P.snow,sl=(hw1-hw0)/H,rc=ROOF[o.roof];
+  const hw=z=>hw0+sl*z,wc=WALL.stone;
+  const col=(shade,sw)=>(h,px,py)=>{
+    const z=h.z,u=h.u;let c=wc;const br=Math.floor(z/2.5),bs=Math.floor(u*3+(br&1)*.5);c=mul(c,.88+ih(br,bs)*.22);
+    if(z<2)c=mul(c,.78);
+    if(sw&&Math.abs(u-cx)<.28&&z<10)c=(z>9.1||Math.abs(u-cx)>.2)?[58,40,28]:[96,64,42];
+    else if(Math.abs(Math.abs(u-cx)-0)<.2&&z>14&&z<19&&sw)c=[60,76,98];
+    else if(!sw&&Math.abs(u-cy)<.2&&z>14&&z<19)c=[60,76,98];
+    return mul(c,shade*(1+(ih(px,py)-.5)*.1));};
+  const TX={hit(x0,y0){const den=1-8*sl;const t=(cx+hw0-x0)/den,z=8*t,y=y0+t;if(z<0||z>H)return null;if(Math.abs(y-cy)>hw(z))return null;return{t,u:y,v:z,z}},col:col(.74,false)};
+  const TY={hit(x0,y0){const den=1-8*sl;const t=(cy+hw0-y0)/den,z=8*t,x=x0+t;if(z<0||z>H)return null;if(Math.abs(x-cx)>hw(z))return null;return{t,u:x,v:z,z}},col:col(1,true)};
+  const hwr=hw1+.28,A=H+rr,Z0=H-1.2,kk=(A-Z0)/hwr;
+  const rcol=(sh,dist)=>(h,px,py)=>{const s=dist(h),row=Math.floor(s*4);let c=mul(rc,(row&1)?1:.88);if(s<.2)c=mul(c,1.15);if(snow&&ih(px*3,py*5)<.75-s*.4)c=mix(c,SNOW,.9);return mul(c,sh*(1+(ih(px,py)-.5)*.12))};
+  const faces=[TX,TY,
+    SL(A+kk*cx/1,-kk/1*0+0,0,()=>false,()=>null)];
+  faces.length=2;
+  faces.push(SL(A+kk*cx,-kk,0,(x,y)=>x-cx>=Math.abs(y-cy)&&x-cx<=hwr,rcol(.8,h=>h.u-cx)));
+  faces.push(SL(A+kk*cy,0,-kk,(x,y)=>y-cy>=Math.abs(x-cx)&&y-cy<=hwr,rcol(1,h=>h.v-cy)));
+  faces.push(SL(A-kk*cx,kk,0,(x,y)=>cx-x>=Math.abs(y-cy)&&cx-x<=hwr,rcol(.6,h=>cx-h.u)));
+  faces.push(SL(A-kk*cy,0,kk,(x,y)=>cy-y>=Math.abs(x-cx)&&cy-y<=hwr,rcol(.66,h=>cy-h.v)));
+  const hubZ=H-5;
+  box(cx+hw(hubZ)-.05,cy-.18,cx+hw(hubZ)+.42,cy+.18,hubZ-3,hubZ+3,()=>[110,76,50],()=>[130,92,60],()=>[150,110,74]).forEach(f=>faces.push(f));
+  const bb={x0:cx-hw0-.3,y0:cy-hw0-.3,x1:cx+hw0+.6,y1:cy+hw0+.3,zmax:H+rr+4};
+  const s=render(faces,bb);
+  s.hub=proj(cx+hw(hubZ)+.5,cy,hubZ,s);s.wins=[proj(cx,cy+hw(17),17,s)];s.chim=null;return s;
+}
+
+// ---- pyramid-roofed square tower (chapel bell tower, watchtower roof) ----
+function spire(o,season){
+  const w=o.w,H=o.H,rr=o.rr,cx=w/2,cy=w/2,snow=PAL[season].snow,rc=ROOF[o.roof],wc=WALL[o.wall],f=[];
+  const wall=(sh)=>(h,px,py)=>{let c=wc;if(o.wall==="stone"){const r=Math.floor(h.v/3),s2=Math.floor(h.u*3+(r&1)*.5);c=mul(c,.86+ih(r,s2)*.22)}else if(Math.floor(h.u*4)%2===0)c=mul(c,.92);
+    if(o.bell&&h.v>H-7&&h.v<H-2&&Math.abs(h.u-(o.sw?cx:cy))<.25)c=[40,30,24];if(h.v<2)c=mul(c,.8);return mul(c,sh*(1+(ih(px,py)-.5)*.1))};
+  if(!o.legs){f.push(XP(w,0,w,0,H,wall(.74)),YP(w,0,w,0,H,(h,px,py)=>wall(1)({u:h.u,v:h.v},px,py)))}
+  else{for(const [lx,ly] of [[.1,.1],[w-.35,.1],[.1,w-.35],[w-.35,w-.35]])box(lx,ly,lx+.25,ly+.25,0,H,()=>[96,66,40],()=>[120,84,52],()=>[130,92,58]).forEach(q=>f.push(q));
+    box(.05,.05,w-.05,w-.05,H-1,H+1,()=>[100,70,44],()=>[132,94,60],()=>[150,110,70]).forEach(q=>f.push(q));
+    for(const zz of [H*.35,H*.7])box(.12,w-.3,w-.12,w-.12,zz,zz+.8,()=>[96,66,40],()=>[120,84,52],()=>[130,92,58]).forEach(q=>f.push(q));
+    f.push(XP(w-.05,.05,w-.05,H+1,H+5,(h,px,py)=>mul([140,100,62],.74*(Math.floor(h.u*4)%2?1:.9))),YP(w-.05,.05,w-.05,H+1,H+5,(h,px,py)=>mul([140,100,62],Math.floor(h.u*4)%2?1:.9)))}
+  const Z=o.legs?H+5:H,hw=w/2+.15,A=Z+rr,kk=rr/hw;
+  const rcol=(sh,dist)=>(h,px,py)=>{const s=dist(h),row=Math.floor(s*4);let c=o.roof==="thatch"?mul(rc,.86+ih(px,Math.floor(py/2))*.26):mul(rc,(row&1)?1:.88);if(snow&&ih(px*3,py*5)<.75-s*.3)c=mix(c,SNOW,.9);return mul(c,sh*(1+(ih(px,py)-.5)*.12))};
+  f.push(SL(A+kk*cx,-kk,0,(x,y)=>x-cx>=Math.abs(y-cy)&&x-cx<=hw,rcol(.8,h=>h.u-cx)));
+  f.push(SL(A+kk*cy,0,-kk,(x,y)=>y-cy>=Math.abs(x-cx)&&y-cy<=hw,rcol(1,h=>h.v-cy)));
+  f.push(SL(A-kk*cx,kk,0,(x,y)=>cx-x>=Math.abs(y-cy)&&cx-x<=hw,rcol(.6,h=>cx-h.u)));
+  f.push(SL(A-kk*cy,0,kk,(x,y)=>cy-y>=Math.abs(x-cx)&&cy-y<=hw,rcol(.66,h=>cy-h.v)));
+  if(o.cross){box(cx-.04,cy-.04,cx+.04,cy+.04,A,A+6,()=>[60,50,40],()=>[90,76,60],()=>[90,76,60]).forEach(q=>f.push(q));box(cx-.04,cy-.2,cx+.04,cy+.2,A+3.5,A+4.3,()=>[60,50,40],()=>[90,76,60],()=>[90,76,60]).forEach(q=>f.push(q))}
+  const s=render(f,{x0:-.2,y0:-.2,x1:w+.2,y1:w+.2,zmax:A+8});s.wins=o.legs?[proj(w/2,w/2,H+3,s)]:[];s.chim=null;return s;
+}
+function skeps(season){const w=22,h=12,S=canvasOf(w,h),snow=PAL[season].snow;
+  for(let x=0;x<w;x++){put(S.img,w,x,9,[132,94,60]);put(S.img,w,x,10,[96,66,40])}for(const x of [1,20])put(S.img,w,x,11,[80,56,36]);
+  for(const cx of [4,11,18])for(let y=1;y<9;y++)for(let x=cx-3;x<=cx+3;x++){const dx=(x-cx)/3.5,dy=(y-8.5)/7.5;if(dx*dx+dy*dy<1){let c=(y%2)?[214,174,90]:[186,146,70];if(x>cx+1)c=mul(c,.82);if(y===7&&x===cx)c=[40,28,16];if(snow&&y<4)c=SNOW;put(S.img,w,x,y,c)}}
+  const r=finishOutline(S);r.ax=11;r.ay=10;return r}
+function innSign(season){const w=9,h=16,S=canvasOf(w,h);for(let y=2;y<h;y++)put(S.img,w,1,y,[90,62,40]);for(let x=1;x<8;x++)put(S.img,w,x,2,[90,62,40]);
+  for(let y=4;y<10;y++)for(let x=3;x<9;x++)put(S.img,w,x,y,y===4||y===9||x===3||x===8?[90,62,40]:[196,150,80]);for(let y=5;y<9;y++){put(S.img,w,5,y,[240,220,170]);put(S.img,w,6,y,[240,220,170])}put(S.img,w,7,6,[240,220,170]);
+  const r=finishOutline(S);r.ax=1;r.ay=h-1;return r}
+function sapling(size,v,season){return v?oak(size,v,season):spruce(size,0,season)}
 // ---- building sprites by type ----
 const MODELS={
   pit:{k:"hut",a:2,b:2,H:4,rr:12,ridge:"x",wall:"wood",roof:"thatch",nowin:true},
@@ -238,10 +294,17 @@ const MODELS={
   forage:{k:"hut",a:2,b:2,H:9,rr:8,ridge:"x",wall:"cream",roof:"thatch",nowin:true},
   fisher:{k:"hut",a:2,b:2,H:9,rr:8,ridge:"x",wall:"wood",roof:"thatch",nowin:true},
   quarry:{k:"hut",a:2,b:2,H:7,rr:6,ridge:"y",wall:"stone",roof:"slate",nowin:true,nochim:true},
+  longhouse:{k:"hut",a:6,b:3,H:8,rr:14,ridge:"x",wall:"wood",roof:"thatch"},
+  tavern:{k:"hut",a:4,b:3,H:12,rr:9,ridge:"x",wall:"cream",roof:"brown"},
+  chapel:{k:"hut",a:4,b:3,H:13,rr:10,ridge:"x",wall:"cream",roof:"slate",nochim:true},
+  shed:{k:"hut",a:2,b:1,H:7,rr:5,ridge:"x",wall:"wood",roof:"thatch",nowin:true,nochim:true},
 };
 export function buildingSprites(season){
   const o={};
   for(const k in MODELS)o[k]=houseModel(MODELS[k],season);
+  o.mill=millModel({a:3,b:3,H:30,rr:12,roof:"red"},season);o.belltower=spire({w:1.3,H:30,rr:12,wall:"stone",roof:"slate",bell:1,sw:1,cross:1},season);
+  o.tower=spire({w:2,H:18,rr:9,wall:"wood",roof:"thatch",legs:1},season);o.skeps=skeps(season);o.sign=innSign(season);
+  o.sapling=[spruce(.32,0,season),spruce(.5,1,season),oak(.4,1,season),oak(.62,2,season)];
   o.well=wellModel(season);o.tent=tentModel(season);o.rack=rack(season);o.scarecrow=scarecrow(season);o.bench=bench(season);o.torch=torchPost(season);
   return o;
 }

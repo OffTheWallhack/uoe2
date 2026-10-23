@@ -20,6 +20,11 @@ export function mkRng(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t 
 // In the demo world everything is close together; in the full game the scales grow.
 export const SEA = .40;
 let DX = 1, DY = 0;
+// Things the villagers change in the land itself: bridges and gravel fill over water, gravel roads.
+const OVER = new Map(), ROAD = new Set();
+export const okey = (x, y) => Math.floor(x) + ":" + Math.floor(y);
+export const overAt = (x, y) => OVER.size ? OVER.get(okey(x, y)) : undefined;
+export const isRoad = (x, y) => ROAD.size > 0 && ROAD.has(okey(x, y));
 export function elev(x, y) {
   let e = vn(x + 3000, y - 1000, 48) * .5 + vn(x, y, 14) * .3 + vn(x + 77, y + 33, 5) * .2;
   const d = x * DX + y * DY;
@@ -41,18 +46,20 @@ export const flowerV = (x, y) => Math.max(vn(x - 8000, y + 4000, 18) - .22, DEMO
 // the stream: from the highlands down to the lake
 export function riverD(x, y) { const [u, v] = ax(x, y); if (u < -70) return 99; const vc = 11 + Math.sin(u * .11) * 3.5 + (vn(u * .4 + 500, 7, 5) - .5) * 5; return Math.abs(v - vc); }
 const riverW = (x, y) => { const u = x * DX + y * DY; return .55 + clamp((u - 4) * .025, 0, .8); };
-export const isRiver = (x, y) => riverD(x, y) < riverW(x, y) && elev(x, y) >= SEA;
+export const isRiver = (x, y) => riverD(x, y) < riverW(x, y) && elev(x, y) >= SEA && !(OVER.size && OVER.has(okey(x, y)));
 // alpine band: dwarf pine (kosodrevina) and mountain meadow
 export const alpineV = h => h >= 20 && h < 38;
 // ground height in screen pixels (0 = water level). Cliffy areas get sharp terraces.
 export function heightAt(x, y) {
+  if (OVER.size) { const o = OVER.get(okey(x, y)); if (o) return o.k === "f" ? 2 : o.z; }
   const e = elev(x, y); if (e < SEA) return 0;
   const sharp = clamp((cliffV(x, y) - .47) / .18, 0, 1) * clamp(Math.hypot(x, y) / 14 - .5, 0, 1);
   const v = (e - SEA) * 80 + sharp * 5, q = v / 6, fl = Math.floor(q), f = q - fl, w = .5 - .48 * sharp, s = clamp((f - (.5 - w)) / (2 * w), 0, 1);
   return (fl + s * s * (3 - 2 * s)) * 6;
 }
-export const lakeV = (x, y) => .7 + (SEA - elev(x, y)) * 2;
-export const isWater = (x, y) => elev(x, y) < SEA;
+export const lakeV = (x, y) => { if (OVER.size) { const o = OVER.get(okey(x, y)); if (o && o.k === "f") return .58; } return .7 + (SEA - elev(x, y)) * 2; };
+export const isWater = (x, y) => { if (OVER.size) { const o = OVER.get(okey(x, y)); if (o && o.k === "f") return false; } return elev(x, y) < SEA; };
+export const wet = (x, y) => (OVER.size && OVER.has(okey(x, y))) ? false : (elev(x, y) < SEA || riverD(x, y) < riverW(x, y));
 export const steep = (x0, y0, x1, y1) => Math.abs(heightAt(x1, y1) - heightAt(x0, y0)) > 3.6;
 export const fdV = (x, y) => vn(x + 200, y + 200, 11) * .65 + vn(x, y + 77, 4) * .35 - Math.max(0, 1 - Math.hypot(x, y) / 10) * .45;
 export const lfV = (x, y) => vn(x + 40, y + 40, 5) * .6 + vn(x, y, 1.7) * .4;
@@ -71,9 +78,18 @@ export const TYPES = {
   well:   { name: "Well", a: 1, b: 1, cost: { stone: 15 }, time: 600, d: "Fresh water. Villagers like to chat here.", unlock: "pop10" },
   torch:  { name: "Torch Post", a: 1, b: 1, cost: { wood: 3 }, time: 30, deco: true, light: true, d: "A torch on a post. Burns from dusk until dawn." },
   bench:  { name: "Bench", a: 1, b: 1, cost: { wood: 5 }, time: 40, deco: true, d: "A place to sit. Villagers rest here.", unlock: "path" },
+  bridge: { name: "Bridge", a: 1, b: 1, cost: { wood: 4 }, perTile: true, time: 150, special: true, d: "Planks across the water. Villagers cross with dry feet. 4 wood per tile." },
+  fill:   { name: "Gravel Fill", a: 2, b: 2, cost: { stone: 16 }, time: 360, special: true, d: "Stone and gravel dumped into shallow water. New land by the shore." },
+  longhouse: { name: "Longhouse", a: 6, b: 3, cost: { wood: 120, stone: 20 }, beds: 8, time: 1800, d: "A great hall under one long roof. Home for eight.", unlock: "pop15" },
+  mill:   { name: "Windmill", a: 3, b: 3, cost: { wood: 80, stone: 30 }, drop: ["food"], time: 1500, d: "Harvests are ground here. Every sack of grain gives half again as much food.", unlock: "harvest" },
+  tavern: { name: "Tavern", a: 4, b: 3, cost: { wood: 70, stone: 10 }, time: 1500, d: "Ale, songs and stories. Evenings are spent here instead of by the fire.", unlock: "pop10" },
+  chapel: { name: "Chapel", a: 4, b: 3, cost: { wood: 60, stone: 40 }, time: 1800, d: "A small chapel with a bell. It rings every evening; on Sunday mornings everyone gathers here.", unlock: "pop12" },
+  tower:  { name: "Watchtower", a: 2, b: 2, cost: { wood: 40, stone: 10 }, time: 900, reveal: 20, d: "From the top you see far. Reveals the land all around." },
+  fold:   { name: "Sheepfold", a: 4, b: 4, cost: { wood: 50 }, time: 900, d: "A fenced pasture with sheep. A shepherd brings milk and cheese.", unlock: "pop8" },
+  apiary: { name: "Apiary", a: 2, b: 1, cost: { wood: 20 }, time: 400, d: "Straw beehives. Near flowers they give more honey.", unlock: "flowers" },
 };
-export const BUILD_MENU = ["pit", "hut", "store", "wcut", "forage", "fisher", "quarry", "field", "well", "torch", "bench"];
-export const UNLOCK_TEXT = { harvest: "Unlocks after the first harvest", pop7: "Unlocks at 7 villagers", pop10: "Unlocks at 10 villagers", path: "Unlocks with the first footpath" };
+export const BUILD_MENU = ["pit", "hut", "longhouse", "store", "wcut", "forage", "fisher", "quarry", "field", "mill", "fold", "apiary", "well", "tavern", "chapel", "tower", "bridge", "fill", "torch", "bench"];
+export const UNLOCK_TEXT = { harvest: "Unlocks after the first harvest", pop7: "Unlocks at 7 villagers", pop8: "Unlocks at 8 villagers", pop10: "Unlocks at 10 villagers", pop12: "Unlocks at 12 villagers", pop15: "Unlocks at 15 villagers", path: "Unlocks with the first footpath", flowers: "Unlocks when the villagers find a flower meadow" };
 export const CROPS = { wheat: { name: "Wheat", yield: 30 }, barley: { name: "Barley", yield: 28 }, cabbage: { name: "Cabbage", yield: 34 }, flax: { name: "Flax", yield: 24 } };
 const NAMES = ["Branko", "Dusa", "Milan", "Olga", "Ratibor", "Svetla", "Zdeno", "Kveta", "Bohuslav", "Lubica", "Ctibor", "Milica", "Bohdan", "Mila", "Radko", "Vesna", "Dobroslav", "Luba", "Stano", "Zora", "Jarek", "Dana", "Ivo", "Hela", "Miro", "Nada", "Tomas", "Rada", "Vlk", "Bela", "Ondro", "Lada", "Kubo", "Sona", "Pavol", "Jela"];
 const TRAITS = ["early riser", "storyteller", "stubborn", "dreamer", "hard worker", "gossip", "careful", "cheerful", "night owl", "quiet", "curious", "grumpy but kind"];
@@ -84,7 +100,7 @@ export function createWorld(seed, t0) {
     v: 1, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
-    chunks: {},
+    chunks: {}, over: {}, road: [], wade: {}, sheep: [],
   };
   const W = wrap(S);
   const R = mkRng(seed + 7);
@@ -116,7 +132,9 @@ export function wrap(S) {
   // trail from the entry point to the start clearing
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
-  // rebuild occupancy
+  // rebuild occupancy and the changed land
+  OVER.clear(); ROAD.clear(); S.over = S.over || {}; S.road = S.road || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
+  for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.add(k);
   for (const b of S.b) occupy(W, b, true);
   if (!S.dog && S.people.length) S.dog = { x: S.people[0].x + 1, y: S.people[0].y, tx: S.people[0].x, ty: S.people[0].y, t: 1, owner: S.people[0].id, name: "Dunčo", fx: 1 };
   return W;
@@ -231,15 +249,51 @@ export function canPlace(W, type, x, y, mayor) {
   if (S.phase !== "settled") return "Settle first.";
   return null;
 }
+// where a building would stand if the Mayor taps (x, y); bridges and fill have their own rules
+export function bridgeSpan(W, x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), wt = (i, j) => wet(i + .5, j + .5) && !W.occ.has(tkey(i, j));
+  if (!wt(ix, iy)) return { err: "Tap on the water where the bridge should go." };
+  let best = null;
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    let s = 0, e = 0; while (s < 10 && wt(ix - (s + 1) * dx, iy - (s + 1) * dy)) s++; while (e < 10 && wt(ix + (e + 1) * dx, iy + (e + 1) * dy)) e++;
+    const len = s + e + 1; if (len > 9) continue;
+    const ax = ix - (s + 1) * dx, ay = iy - (s + 1) * dy, bx = ix + (e + 1) * dx, by = iy + (e + 1) * dy;
+    if (wet(ax + .5, ay + .5) || wet(bx + .5, by + .5) || hidden(W, ax + .5, ay + .5) || hidden(W, bx + .5, by + .5)) continue;
+    const h1 = heightAt(ax + .5, ay + .5), h2 = heightAt(bx + .5, by + .5); if (Math.abs(h1 - h2) > 5) continue;
+    if (!best || len < best.len) best = { x: ix - s * dx, y: iy - s * dy, a: dx ? len : 1, b: dy ? len : 1, len, z: Math.round((h1 + h2) / 2) + 1, dx, dy };
+  }
+  return best || { err: "Too wide here. Find a narrow spot (up to 9 tiles)." };
+}
+export function planShape(W, type, x, y, mayor) {
+  const T = TYPES[type], S = W.S; if (!T) return { err: "Unknown building." };
+  if (mayor && T.unlock && !S.ms[T.unlock]) return { err: UNLOCK_TEXT[T.unlock] + "." };
+  if (S.phase !== "settled") return { err: "Settle first." };
+  if (type === "bridge") return bridgeSpan(W, x, y);
+  if (type === "fill") {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    for (const [ox, oy] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+      const X = ix + ox, Y = iy + oy; let ok = true, land = false;
+      for (let j = 0; j < 2 && ok; j++) for (let i = 0; i < 2; i++) { const tx = X + i + .5, ty = Y + j + .5; if (!isWater(tx, ty) || overAt(tx, ty) || elev(tx, ty) < SEA - .04 || hidden(W, tx, ty) || W.occ.has(tkey(X + i, Y + j))) { ok = false; break; } }
+      if (!ok) continue;
+      for (let j = -1; j <= 2 && !land; j++) for (let i = -1; i <= 2; i++) if ((i < 0 || i > 1 || j < 0 || j > 1) && !wet(X + i + .5, Y + j + .5)) { land = true; break; }
+      if (land) return { x: X, y: Y, a: 2, b: 2 };
+    }
+    return { err: "Gravel fill needs shallow water right next to the shore." };
+  }
+  const X = Math.round(x - T.a / 2), Y = Math.round(y - T.b / 2), err = canPlace(W, type, X, Y, mayor);
+  return err ? { err, x: X, y: Y, a: T.a, b: T.b } : { x: X, y: Y, a: T.a, b: T.b };
+}
 function treesIn(W, x, y, a, b, fn) { for (let cy = Math.floor(y / C); cy <= Math.floor((y + b) / C); cy++) for (let cx = Math.floor(x / C); cx <= Math.floor((x + a) / C); cx++) { const ch = getChunk(W, cx, cy, true); for (const t of ch.trees) if (t.x >= x - .3 && t.x < x + a + .3 && t.y >= y - .3 && t.y < y + b + .3) fn(t, ch); } }
 function bushesIn(W, x, y, a, b, fn) { for (let cy = Math.floor(y / C); cy <= Math.floor((y + b) / C); cy++) for (let cx = Math.floor(x / C); cx <= Math.floor((x + a) / C); cx++) { const ch = getChunk(W, cx, cy, true); for (const t of ch.bushes) if (t.x >= x - .3 && t.x < x + a + .3 && t.y >= y - .3 && t.y < y + b + .3) fn(t, ch); } }
-export function addBuilding(W, type, x, y, by) {
+export function addBuilding(W, type, x, y, by, sh) {
   const T = TYPES[type], S = W.S; x = Math.round(x); y = Math.round(y);
-  const b = { id: S.nextId++, type, x, y, a: T.a, b: T.b, done: T.time === 0, prog: 0, need: { ...T.cost }, by, at: S.tick };
+  const a = sh && sh.a || T.a, bb = sh && sh.b || T.b, need = {}; for (const k in T.cost) need[k] = T.cost[k] * (T.perTile ? a * bb : 1);
+  const b = { id: S.nextId++, type, x, y, a, b: bb, done: T.time === 0, prog: 0, need, cost0: { ...need }, by, at: S.tick };
+  if (type === "bridge") { b.z = sh.z; b.dx = sh.dx; }
   if (T.field) { b.crop = "wheat"; b.auto = true; b.stage = 0; b.work = 0; b.grow = 0; b.left = 0; }
   S.b.push(b); occupy(W, b, true);
-  let n = 0; treesIn(W, x, y, T.a, T.b, (t, ch) => { if (!t.felled) { t.felled = true; t.cleared = true; t.logs = 0; n++; markChunk(W, ch); } else t.cleared = true; });
-  bushesIn(W, x, y, T.a, T.b, (t, ch) => { t.gone = true; markChunk(W, ch); });
+  let n = 0; treesIn(W, x, y, a, bb, (t, ch) => { if (!t.felled) { t.felled = true; t.cleared = true; t.logs = 0; n++; markChunk(W, ch); } else t.cleared = true; });
+  bushesIn(W, x, y, a, bb, (t, ch) => { t.gone = true; markChunk(W, ch); });
   if (n) S.res.wood += n;
   W.events.push({ k: "build", b });
   return b;
@@ -251,12 +305,12 @@ export function clockOf(S, tick) {
   const ms = S.t0 + (tick ?? S.tick) * 250, key = Math.floor(ms / 60000);
   let c = fmtCache.get(key);
   if (!c) {
-    let h = 12, m = 0, mon = 6;
-    try { const parts = new Intl.DateTimeFormat("en-GB", { timeZone: S.tz, hour: "numeric", minute: "numeric", month: "numeric", hourCycle: "h23" }).formatToParts(new Date(ms)); for (const p of parts) { if (p.type === "hour") h = +p.value; if (p.type === "minute") m = +p.value; if (p.type === "month") mon = +p.value; } } catch (e) { const d = new Date(ms); h = d.getHours(); m = d.getMinutes(); mon = d.getMonth() + 1; }
-    c = { hour: h + m / 60, month: mon }; if (fmtCache.size > 4000) fmtCache.clear(); fmtCache.set(key, c);
+    let h = 12, m = 0, mon = 6, wd = 1;
+    try { const parts = new Intl.DateTimeFormat("en-GB", { timeZone: S.tz, hour: "numeric", minute: "numeric", month: "numeric", weekday: "short", hourCycle: "h23" }).formatToParts(new Date(ms)); for (const p of parts) { if (p.type === "hour") h = +p.value; if (p.type === "minute") m = +p.value; if (p.type === "month") mon = +p.value; if (p.type === "weekday") wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.value); } } catch (e) { const d = new Date(ms); h = d.getHours(); m = d.getMinutes(); mon = d.getMonth() + 1; wd = d.getDay(); }
+    c = { hour: h + m / 60, month: mon, wd }; if (fmtCache.size > 4000) fmtCache.clear(); fmtCache.set(key, c);
   }
   const sec = (ms % 60000) / 60000 / 60;
-  return { hour: c.hour + sec, month: c.month };
+  return { hour: c.hour + sec, month: c.month, wd: c.wd };
 }
 export const seasonOf = month => month <= 2 || month === 12 ? "winter" : month <= 5 ? "spring" : month <= 8 ? "summer" : "autumn";
 export function addLog(W, t) { const S = W.S; S.log.unshift({ tk: S.tick, t }); if (S.log.length > 40) S.log.length = 40; W.events.push({ k: "log", t }); }
@@ -267,6 +321,12 @@ export const camp = W => W.S.b.find(b => b.type === "camp");
 export function bedsTotal(W) { let n = 0; for (const b of W.S.b) if (b.done && TYPES[b.type].beds) n += TYPES[b.type].beds; return n; }
 function homeFor(W) { const used = {}; for (const p of W.S.people) used[p.home] = (used[p.home] || 0) + 1; for (const b of W.S.b) { const T = TYPES[b.type]; if (b.done && T.beds && (used[b.id] || 0) < T.beds) return b.id; } return 0; }
 const center = b => ({ x: b.x + b.a / 2, y: b.y + b.b / 2 });
+export const isSite = b => !b.done || !!b.upTo;
+function workSpot(W, b) {
+  if (b.type === "bridge") { const dx = b.dx ? 1 : 0, dy = 1 - dx, cm = camp(W), c = cm ? center(cm) : { x: 0, y: 0 }, e1 = { x: b.x - dx + .5, y: b.y - dy + .5 }, e2 = { x: b.x + (dx ? b.a : 0) + .5, y: b.y + (dy ? b.b : 0) + .5 }; return Math.hypot(e1.x - c.x, e1.y - c.y) < Math.hypot(e2.x - c.x, e2.y - c.y) ? e1 : e2; }
+  if (b.type === "fill") { for (let j = -1; j <= 2; j++) for (let i = -1; i <= 2; i++) if ((i < 0 || i > 1 || j < 0 || j > 1) && !wet(b.x + i + .5, b.y + j + .5)) return { x: b.x + i + .5, y: b.y + j + .5 }; }
+  return { x: b.x + b.a / 2, y: b.y + b.b + .3 };
+}
 export const doorOf = b => ({ x: b.x + b.a / 2, y: b.y + b.b + .45 });
 function nearestDrop(W, kind, x, y) {
   let best = null, bd = 1e9;
@@ -298,7 +358,7 @@ const evening = h => h >= 21.5;
 function night(h) { return h >= 21.5 || h < 6; }
 export function rallyStr(S) { if (!S.rally) return 0; const t = S.rally.t; return t < 60 ? 1 : Math.max(0, 1 - (t - 60) / 60); }
 function assignRoles(W) {
-  const S = W.S, n = S.people.length, sites = S.b.filter(b => !b.done).length;
+  const S = W.S, n = S.people.length, sites = S.b.filter(isSite).length;
   const fields = S.b.filter(b => b.done && TYPES[b.type].field).length;
   const want = { build: sites ? Math.min(n, Math.max(1, Math.round(n * .3)) + (S.b.some(b => !b.done && b.by === "mayor") ? 1 : 0)) : 0 };
   const rest = n - want.build;
@@ -320,17 +380,21 @@ function pickJob(W, p, H) {
   let job = null, obj = null, tx = 0, ty = 0;
   const free = r => !busy.get(bkey(r));
   if (role === "build") {
-    const sites = S.b.filter(b => !b.done).sort((a, b) => (a.by === "mayor" ? 0 : 1) - (b.by === "mayor" ? 0 : 1) || a.at - b.at);
+    const sites = S.b.filter(isSite).sort((a, b) => (a.by === "mayor" ? 0 : 1) - (b.by === "mayor" ? 0 : 1) || a.at - b.at);
     for (const s of sites) {
       const needK = ["wood", "stone"].find(k => (s.need[k] || 0) > 0);
       if (needK && S.res[needK] > 0) { const st = nearestDrop(W, needK, s.x, s.y); if (st) { const d = doorOf(st); job = "fetch"; obj = { b: s.id }; p.fetchK = needK; p.fetchFrom = st.id; tx = d.x; ty = d.y; break; } }
-      if (!needK) { const c = center(s); job = "construct"; obj = { b: s.id }; tx = c.x + (rnd(W) - .5) * s.a; ty = s.y + s.b + .3; break; }
+      if (!needK) { const ws = workSpot(W, s); job = "construct"; obj = { b: s.id }; tx = ws.x + (s.type === "bridge" || s.type === "fill" ? 0 : (rnd(W) - .5) * s.a); ty = ws.y; break; }
     }
     if (!job) role = sites.some(s => (s.need.stone || 0) > 0 && !S.res.stone) ? "stone" : "wood";
   }
   if (!job && role === "food") {
     const f = S.b.filter(b => b.done && b.type === "field" && (b.stage === 0 || b.stage === 3));
-    if (f.length) { const fb = f[(rnd(W) * f.length) | 0]; job = fb.stage === 0 ? "sow" : "harvest"; obj = { b: fb.id }; tx = fb.x + .5 + rnd(W) * (fb.a - 1); ty = fb.y + .5 + rnd(W) * (fb.b - 1); }
+    const fold = S.b.find(b => b.done && b.type === "fold" && (b.tend || 0) <= S.tick && free({ b: b.id }));
+    const hive = sea !== "winter" && S.b.find(b => b.done && b.type === "apiary" && (b.honey || 0) <= S.tick && free({ b: b.id }));
+    if (fold && rnd(W) < .6) { job = "tend"; obj = { b: fold.id }; tx = fold.x + 1 + rnd(W) * 2; ty = fold.y + 1 + rnd(W) * 2; }
+    else if (hive && rnd(W) < .6) { job = "honey"; obj = { b: hive.id }; tx = hive.x + 1; ty = hive.y + 1.4; }
+    else if (f.length) { const fb = f[(rnd(W) * f.length) | 0]; job = fb.stage === 0 ? "sow" : "harvest"; obj = { b: fb.id }; tx = fb.x + .5 + rnd(W) * (fb.a - 1); ty = fb.y + .5 + rnd(W) * (fb.b - 1); }
     else {
       const drop = nearestDrop(W, "food", p.x, p.y) || cm, dc = drop ? doorOf(drop) : home;
       const bush = sea !== "winter" ? pickNear(W, dc.x, dc.y, 28, "bushes", o => !o.gone && o.berries > 0 && free({ l: "bushes", c: ckeyOf(o), i: o.i }), 3) : null;
@@ -346,8 +410,12 @@ function pickJob(W, p, H) {
   }
   if (!job && role === "wood") {
     const drop = nearestDrop(W, "wood", p.x, p.y) || cm, dc = drop ? doorOf(drop) : home;
+    if (drop && drop.type === "wcut" && rnd(W) < .3) { // the forester plants saplings where trees were felled
+      const st = pickNear(W, dc.x, dc.y, 12, "trees", o => o.felled && !o.cleared && !o.sapling && free({ l: "trees", c: ckeyOf(o), i: o.i }), 2);
+      if (st) { job = "plant"; obj = ref("trees", st.ch, st.o); tx = st.o.x + .5; ty = st.o.y + .5; }
+    }
     const t = pickNear(W, dc.x, dc.y, 30, "trees", o => !o.felled && free({ l: "trees", c: ckeyOf(o), i: o.i }), 4);
-    if (t) { job = "wood"; obj = ref("trees", t.ch, t.o); tx = t.o.x + .5; ty = t.o.y + .5; }
+    if (!job && t) { job = "wood"; obj = ref("trees", t.ch, t.o); tx = t.o.x + .5; ty = t.o.y + .5; }
   }
   if (!job && role === "scout") {
     const a = rnd(W) * Math.PI * 2;
@@ -359,28 +427,33 @@ function pickJob(W, p, H) {
     else { const a = rnd(W) * 6.3, d = 1.5 + rnd(W) * 2.5; job = "rest"; tx = home.x + Math.cos(a) * d; ty = home.y + Math.sin(a) * d + 2; p.benchSit = false; }
   }
   p.job = job; p.obj = obj; if (obj) busy.set(bkey(obj), 1); p.tx = tx; p.ty = ty; p.state = "go";
-  p.act = { fetch: "Fetching materials for a building", construct: "Building", sow: "Plowing and sowing the field", harvest: "Harvesting", wood: "Going to chop wood", stone: "Going to break stone", berries: "Going to pick berries", fish: "Going fishing", scout: "Exploring the land", rest: "Taking a break" }[job];
+  p.act = { fetch: "Fetching materials for a building", construct: "Building", sow: "Plowing and sowing the field", harvest: "Harvesting", wood: "Going to chop wood", stone: "Going to break stone", berries: "Going to pick berries", fish: "Going fishing", scout: "Exploring the land", rest: "Taking a break", plant: "Going to plant a young tree", tend: "Going to tend the sheep", honey: "Going to the beehives" }[job];
 }
 function ckeyOf(o) { return o._k || ""; }
 function think(W, p, H) {
   const S = W.S, cm = camp(W);
   if (p.state === "sleep" && morningP(p, H)) { p.state = "morning"; p.act = "Waking up at home"; return; }
   if (p.state === "morning") { if (morningP(p, H)) return; p.state = "idle"; p.asleep = false; p.t = .3; }
+  const chap = S.b.find(b => b.done && b.type === "chapel");
+  if (chap && clockOf(S).wd === 0 && H >= 9.5 && H < 10.6 && !p.carry && !["church", "tochurch", "sleep", "morning"].includes(p.state)) { p.obj = null; const d = doorOf(chap); p.state = "tochurch"; p.tx = d.x; p.ty = d.y; p.act = "Going to the Sunday service"; return; }
   if ((deepP(p, H) || evening(H)) && p.state !== "toStore" && p.state !== "deliver") {
     p.obj = null;
     const hb = S.b.find(b => b.id === p.home) || cm, hc = hb ? doorOf(hb) : { x: 0, y: 0 };
-    if (deepP(p, H)) { if (p.state !== "bed" && p.state !== "sleep") { p.state = "bed"; p.tx = hc.x; p.ty = hc.y; p.act = "Going home to sleep"; } return; }
+    if (deepP(p, H)) { if (p.state !== "bed" && p.state !== "sleep") { p.inside = false; p.state = "bed"; p.tx = hc.x; p.ty = hc.y; p.act = "Going home to sleep"; } return; }
+    const inn = S.b.find(b => b.done && b.type === "tavern");
+    if (inn && H < 23.2) { if (p.state !== "toinn" && p.state !== "inn") { const d = doorOf(inn); p.state = "toinn"; p.tx = d.x + (rnd(W) - .5); p.ty = d.y; p.act = "Going to the tavern"; } return; }
     if (p.state !== "fire" && p.state !== "sit") { const f = cm ? center(cm) : { x: 0, y: 0 }, a = (p.id % 8) / 8 * 6.28 + .4; p.state = "fire"; p.tx = f.x + 2.2 + Math.cos(a) * 1.4; p.ty = f.y + 2.4 + Math.sin(a) * 1.1; p.act = "Going to the fire"; }
     return;
   }
-  if (["sit", "sleep", "bed", "fire"].includes(p.state)) { p.sit = false; p.asleep = false; p.state = "idle"; }
+  if (["sit", "sleep", "bed", "fire", "inn", "toinn", "church", "tochurch"].includes(p.state)) { p.sit = false; p.asleep = false; p.inside = false; p.state = "idle"; }
   if (p.carry) {
-    if (p.carry.to) { const s = S.b.find(b => b.id === p.carry.to); if (s && !s.done) { const c = center(s); p.state = "deliver"; p.tx = c.x; p.ty = s.y + s.b + .4; p.act = "Carrying " + p.carry.type + " to a building site"; return; } p.carry.to = 0; }
-    const d = nearestDrop(W, p.carry.type, p.x, p.y) || cm; if (d) { const q = doorOf(d); p.state = "toStore"; p.tx = q.x; p.ty = q.y; p.act = "Carrying " + p.carry.amt + " " + p.carry.type + " home"; return; }
+    if (p.carry.to) { const s = S.b.find(b => b.id === p.carry.to); if (s && isSite(s)) { const ws = workSpot(W, s); p.state = "deliver"; p.tx = ws.x; p.ty = ws.y; p.act = "Carrying " + p.carry.type + " to a building site"; return; } p.carry.to = 0; }
+    const mill = p.carry.mill && S.b.find(b => b.id === p.carry.mill && b.done);
+    const d = mill || nearestDrop(W, p.carry.type, p.x, p.y) || cm; if (d) { const q = doorOf(d); p.state = "toStore"; p.tx = q.x; p.ty = q.y; p.act = "Carrying " + p.carry.amt + " " + p.carry.type + " home"; return; }
   }
   pickJob(W, p, H);
 }
-const WORK = { wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1 };
+const WORK = { wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
 function walk(W, p, spd) {
   const dt = DT, dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
   if (d < .25) return true;
@@ -389,14 +462,15 @@ function walk(W, p, spd) {
     p.steerT = .5; const base = Math.atan2(dy, dx); let best = -1e9, ba = base;
     for (const off of [-.9, -.45, 0, .45, .9]) {
       const a = base + off, qx = p.x + Math.cos(a) * .9, qy = p.y + Math.sin(a) * .9;
-      let sc = Math.cos(off) + (d > 2 ? Math.min(1, wearAt(W, qx, qy)) * .85 : 0); if (isWater(qx, qy) || steep(p.x, p.y, qx, qy)) sc -= 10;
-      const o = occAt(W, qx, qy); if (o && !TYPES[o.type].field && d > 2) sc -= 2;
+      let sc = Math.cos(off) + (d > 2 ? Math.min(1, wearAt(W, qx, qy)) * .85 : 0); if (wet(qx, qy) && !isRiver(qx, qy) || steep(p.x, p.y, qx, qy)) sc -= 10; else if (isRiver(qx, qy)) sc -= .9; else if (isRoad(qx, qy)) sc += .35;
+      const o = occAt(W, qx, qy); if (o && !TYPES[o.type].field && o.type !== "bridge" && d > 2) sc -= 2;
       if (sc > best) { best = sc; ba = a; }
     }
     p.ax = Math.cos(ba); p.ay = Math.sin(ba);
   }
   p.hx += (p.ax - p.hx) * .7; p.hy += (p.ay - p.hy) * .7; const hl = Math.hypot(p.hx, p.hy) || 1;
-  const m = Math.min(d, spd * dt * (isRiver(p.x, p.y) ? .55 : 1)); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
+  const inR = isRiver(p.x, p.y), m = Math.min(d, spd * dt * (inR ? .55 : isRoad(p.x, p.y) ? 1.25 : 1)); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
+  if (inR && W.S.phase === "settled") { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + 1; }
   return false;
 }
 function updatePerson(W, p, H) {
@@ -410,21 +484,22 @@ function updatePerson(W, p, H) {
     case "arrive": if (walk(W, p, spd)) { p.state = "idle"; p.t = 1; } break;
     case "idle": case "wait": p.t -= DT; if (p.t <= 0) think(W, p, H); break;
     case "go": {
-      const near = p.job !== "rest" && p.job !== "scout" && p.job !== "construct" && p.job !== "sow" && p.job !== "harvest" && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
+      const near = !["rest", "scout", "construct", "sow", "harvest", "tend"].includes(p.job) && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
       if (walk(W, p, spd) || near) {
-        if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; if (s && !s.done && (s.need[k] || 0) > 0 && S.res[k] > 0) { const n = Math.min(5, s.need[k], S.res[k]); S.res[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
+        if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; if (s && isSite(s) && (s.need[k] || 0) > 0 && S.res[k] > 0) { const n = Math.min(5, s.need[k], S.res[k]); S.res[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
         p.state = "work"; p.t = WORK[p.job] * (S.hungry ? 1.3 : 1) * (1 - rallyStr(S) * .2);
-        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting" }[p.job];
+        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey" }[p.job];
         if (p.job === "rest") p.sit = p.benchSit || rnd(W) < .3;
       }
       if (evening(H) || deepP(p, H)) think(W, p, H);
       break;
     }
-    case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && !s.done) { s.prog += DT / TYPES[s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) finishBuilding(W, s); } else p.t = 0; }
+    case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && isSite(s)) { s.prog += DT / TYPES[s.upTo || s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) { if (s.upTo) finishUpgrade(W, s); else finishBuilding(W, s); } } else p.t = 0; }
       if (p.t <= 0) { p.sit = false; finishWork(W, p); } break;
-    case "deliver": if (walk(W, p, spd * .9)) { const s = S.b.find(b => b.id === p.carry.to); if (!s || s.done) { S.res[p.carry.type] += p.carry.amt; } p.carry = null; p.state = "idle"; p.t = .3; } break;
+    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { S.res[p.carry.type] += p.carry.amt; } p.carry = null; p.state = "idle"; p.t = .3; } break;
     case "toStore": if (walk(W, p, spd * .9)) {
       S.res[p.carry.type] = Math.min(capOf(W), S.res[p.carry.type] + p.carry.amt); W.events.push({ k: "gain", type: p.carry.type, amt: p.carry.amt, x: p.x, y: p.y });
+      if (p.carry.mill) { const m = S.b.find(b => b.id === p.carry.mill); if (m) m.grind = S.tick + 480; }
       p.carry = null; p.state = "idle"; p.t = .6 + rnd(W) * 1.5 * (1 - rallyStr(S)); p.act = "Back home";
       if (S.res.wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
     } break;
@@ -432,6 +507,9 @@ function updatePerson(W, p, H) {
     case "sit": if (!evening(H) || deepP(p, H)) think(W, p, H); break;
     case "sleep": if (!deepP(p, H)) think(W, p, H); break;
     case "morning": think(W, p, H); break;
+    case "toinn": case "tochurch": if (walk(W, p, spd)) { p.inside = true; p.state = p.state === "toinn" ? "inn" : "church"; p.act = p.state === "inn" ? "At the tavern, singing" : "At the Sunday service"; } else if (p.state === "toinn" && (!evening(H) || deepP(p, H))) think(W, p, H); break;
+    case "inn": if (!evening(H) || deepP(p, H) || H >= 23.2) { p.inside = false; think(W, p, H); } break;
+    case "church": if (H >= 10.6 || H < 9) { p.inside = false; p.state = "idle"; p.t = rnd(W) * 2; } break;
   }
   if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
 }
@@ -442,12 +520,28 @@ function finishWork(W, p) {
   else if (j === "berries" && o && o.berries > 0) { o.berries--; p.carry = { type: "food", amt: 2 }; if (o.berries <= 0) o.regrow = 600; }
   else if (j === "fish") { p.carry = { type: "food", amt: 3 }; }
   else if (j === "sow" && o && o.stage === 0) { o.work += 1; if (o.work >= 3) { o.stage = 1; o.work = 0; o.grow = 0; W.events.push({ k: "field", b: o }); } }
-  else if (j === "harvest" && o && o.stage === 3) { const n = Math.min(3, o.left); o.left -= n; p.carry = { type: "food", amt: n }; if (o.left <= 0) { o.stage = 0; o.work = 0; W.events.push({ k: "field", b: o }); milestone(W, "harvest", "First Harvest", "The first field is harvested. The Hut is unlocked."); if (o.auto) {} } }
+  else if (j === "plant" && o && o.felled && !o.cleared) { o.sapling = true; o.regrow = Math.min(o.regrow || 1200, 1200); const ch = W.chunks.get(o._k); if (ch) ch.ovDirty = true; }
+  else if (j === "tend" && o) { p.carry = { type: "food", amt: 4 }; o.tend = S.tick + 480; }
+  else if (j === "honey" && o) { p.carry = { type: "food", amt: flowerV(o.x + 1, o.y) > .4 || flowerV(o.x + 4, o.y + 4) > .4 ? 5 : 3 }; o.honey = S.tick + 720; }
+  else if (j === "harvest" && o && o.stage === 3) { const n = Math.min(3, o.left), mill = S.b.find(b => b.done && b.type === "mill"); o.left -= n; p.carry = mill ? { type: "food", amt: Math.round(n * 1.5), mill: mill.id } : { type: "food", amt: n }; if (o.left <= 0) { o.stage = 0; o.work = 0; W.events.push({ k: "field", b: o }); milestone(W, "harvest", "First Harvest", "The first field is harvested. The Hut and the Windmill are unlocked."); if (o.auto) {} } }
   else if (j === "scout") { p.state = "idle"; p.t = .5; return; }
   p.state = "idle"; p.t = .2;
 }
+function setOver(W, b, val) {
+  const S = W.S; for (let j = 0; j < b.b; j++) for (let i = 0; i < b.a; i++) { const k = (b.x + i) + ":" + (b.y + j); OVER.set(k, val); S.over[k] = val; }
+  W.events.push({ k: "over", x0: b.x - 1, y0: b.y - 1, x1: b.x + b.a + 1, y1: b.y + b.b + 1 });
+}
+function finishUpgrade(W, s) {
+  const S = W.S; s.type = s.upTo; s.upTo = null; s.prog = 1; delete s.need;
+  addLog(W, "A house was rebuilt into a " + TYPES[s.type].name + ".");
+  W.events.push({ k: "built", b: s });
+}
 function finishBuilding(W, s) {
   const S = W.S; s.done = true; s.prog = 1; delete s.need;
+  if (s.type === "bridge") { setOver(W, s, { k: "b", z: s.z, d: s.dx ? 1 : 0 }); for (const k in S.wade) delete S.wade[k]; }
+  if (s.type === "fill") { setOver(W, s, { k: "f" }); occupy(W, s, false); S.b.splice(S.b.indexOf(s), 1); addLog(W, "New land: the gravel fill is done."); W.events.push({ k: "removed", b: s }); return; }
+  if (s.type === "tower") reveal(W, s.x + 1, s.y + 1, TYPES.tower.reveal);
+  if (s.type === "fold") for (let i = 0; i < 4; i++) S.sheep.push({ x: s.x + 1 + rnd(W) * 2, y: s.y + 1 + rnd(W) * 2, tx: 0, ty: 0, t: rnd(W) * 3, f: s.id, fx: 1 });
   addLog(W, (s.by === "mayor" ? "The Mayor's " : "A new ") + TYPES[s.type].name + " is finished.");
   W.events.push({ k: "built", b: s });
   const cm = camp(W), beds = TYPES[s.type].beds || 0;
@@ -472,11 +566,32 @@ function findSite(W, type, ax, ay, rmin, rmax) {
 function plan(W) {
   const S = W.S, cm = camp(W); if (!cm) return;
   const c = center(cm), n = S.people.length, has = t => S.b.some(b => b.type === t), cnt = t => S.b.filter(b => b.type === t).length;
-  if (S.b.filter(b => !b.done && b.by === "ai").length >= 1) return;
+  // the busiest paths slowly become gravel roads
+  if (S.res.stone >= 100 && !S.b.some(b => isSite(b) && (b.need.stone || 0) > 0)) {
+    const cand = [];
+    for (let y = Math.floor(c.y - 22); y <= c.y + 22; y++) for (let x = Math.floor(c.x - 22); x <= c.x + 22; x++) {
+      const k = x + ":" + y; if (ROAD.has(k) || W.occ.has(k) || wet(x + .5, y + .5)) continue;
+      const w = Math.max(wearAt(W, x + .5, y + .5), wearAt(W, x + .25, y + .25), wearAt(W, x + .75, y + .75)); if (w >= 1.0) cand.push([w, k]);
+    }
+    cand.sort((a, b) => b[0] - a[0]); const got = cand.slice(0, 3).map(q => q[1]);
+    if (got.length) { for (const k of got) { ROAD.add(k); S.road.push(k); } S.res.stone -= got.length * 2; W.events.push({ k: "road", tiles: got }); if (!S.ms.road) milestone(W, "road", "First Road", "The busiest path was paved with gravel. Walking is faster on roads."); }
+  }
+  // wet feet: where villagers wade across the stream most, they build a bridge
+  const wk = Object.keys(S.wade); if (wk.length > 300) { const keep = wk.sort((a, b) => S.wade[b] - S.wade[a]).slice(0, 60); const nw = {}; for (const k of keep) nw[k] = S.wade[k]; S.wade = nw; }
+  if (!S.b.some(b => b.type === "bridge" && !b.done)) {
+    let bk = null, bv = 0; for (const k in S.wade) if (S.wade[k] > bv) { bv = S.wade[k]; bk = k; }
+    if (bk && bv >= 600) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && S.res.wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; return; } else S.wade[bk] = 0; }
+  }
+  if (S.b.filter(b => isSite(b) && b.by === "ai").length >= 1) return;
+  // a pit house is rebuilt into a hut when there is stone
+  if (S.ms.harvest && bedsTotal(W) - n <= 1 && S.res.wood >= 20 && S.res.stone >= 4) {
+    const pit = S.b.find(b => b.type === "pit" && b.done && !b.upTo);
+    if (pit) { occupy(W, pit, false); const ox = pit.x, oy = pit.y, err = canPlace(W, "hut", ox, oy, false); if (!err) { pit.upTo = "hut"; pit.prog = 0; pit.need = { ...TYPES.hut.cost }; pit.a = 3; pit.b = 3; occupy(W, pit, true); addLog(W, "The villagers are rebuilding a Pit House into a Hut."); W.events.push({ k: "build", b: pit }); return; } occupy(W, pit, true); }
+  }
   const afford = t => { const k = TYPES[t].cost; return (S.res.wood >= (k.wood || 0) * .6) && (S.res.stone >= (k.stone || 0) * .6); };
   const free = bedsTotal(W) - n, L = [];
   const near = (list, ok) => { const t = pickNear(W, c.x, c.y, 30, list, ok, 1); return t ? t.o : null; };
-  if (free <= 1) L.push([S.ms.harvest && S.res.stone >= 3 ? "hut" : "pit", c, 5, 18]);
+  if (free <= 1) L.push([S.ms.pop15 && S.res.stone >= 12 ? "longhouse" : S.ms.harvest && S.res.stone >= 3 ? "hut" : "pit", c, 5, 20]);
   if (!has("field") && n >= 5) L.push(["field", c, 6, 18]);
   if (!has("wcut")) { const t = near("trees", o => !o.felled); if (t) L.push(["wcut", t, 2, 9]); }
   if (!has("forage") && n >= 6) { const t = near("bushes", o => !o.gone); if (t) L.push(["forage", t, 2, 9]); }
@@ -484,6 +599,12 @@ function plan(W) {
   if (n >= 7 && !has("store")) L.push(["store", c, 7, 18]);
   if (S.ms.pop7 && !has("quarry")) { const t = near("rocks", o => o.stone > 0); if (t) L.push(["quarry", t, 2, 8]); }
   if (S.ms.pop10 && !has("well")) L.push(["well", c, 3, 9]);
+  if (S.ms.harvest && n >= 8 && !has("mill") && has("field")) { const f = S.b.find(b => b.type === "field"); L.push(["mill", center(f), 4, 12]); }
+  if (n >= 8 && !has("tower")) { let bestA = 0, bestH = -1; for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; let h = 0; for (let r = 14; r < 30; r += 4) if (hidden(W, c.x + Math.cos(a) * r, c.y + Math.sin(a) * r)) h++; if (h > bestH) { bestH = h; bestA = a; } } L.push(["tower", { x: c.x + Math.cos(bestA) * 12, y: c.y + Math.sin(bestA) * 12 }, 0, 8]); }
+  if (S.ms.pop8 && !has("fold")) L.push(["fold", c, 8, 22]);
+  if (S.ms.flowers && !has("apiary")) { let fp = null; for (let r = 4; r < 30 && !fp; r += 2) for (let a = 0; a < 6.28; a += .4) { const x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r; if (flowerV(x, y) > .5 && !hidden(W, x, y)) { fp = { x, y }; break; } } if (fp) L.push(["apiary", fp, 0, 6]); }
+  if (S.ms.pop10 && !has("tavern")) L.push(["tavern", c, 5, 16]);
+  if (S.ms.pop12 && !has("chapel")) L.push(["chapel", c, 7, 20]);
   if (cnt("field") * 5 < n - 2) L.push(["field", c, 6, 24]);
   for (const [want, anchor, r0, r1] of L) {
     if (!afford(want)) continue;
@@ -516,7 +637,7 @@ export function step(W) {
     if (S.tick % 20 === 0) {
       for (const ch of W.chunks.values()) {
         const wr = ch.wear; for (let k = 0; k < wr.length; k++) { const o = wr[k]; if (o) { const n = o > 9 ? o - 9 : 0; wr[k] = n; if (((o / WK * 14) | 0) !== ((n / WK * 14) | 0)) W.dirtyGround.push(ch, k); } }
-        for (const t of ch.trees) if (t.felled && !t.cleared && t.regrow > 0) { t.regrow -= 5; if (t.regrow <= 0) { t.felled = false; t.logs = 3; ch.ovDirty = true; } }
+        for (const t of ch.trees) if (t.felled && !t.cleared && t.regrow > 0) { t.regrow -= 5; if (t.regrow <= 0) { t.felled = false; t.sapling = false; t.logs = 3; ch.ovDirty = true; } }
         for (const b of ch.bushes) if (b.regrow > 0) { b.regrow -= 5; if (b.regrow <= 0) b.berries = 3; }
       }
       // fields grow (not in winter)
@@ -525,10 +646,10 @@ export function step(W) {
         if (st !== f.stage) { f.stage = st; if (st === 3) { f.left = CROPS[f.crop].yield; } W.events.push({ k: "field", b: f }); }
       }
     }
-    S.eatT += DT; if (S.eatT > 100) { S.eatT = 0; const need = S.people.length; if (S.res.food >= need) { S.res.food -= need; S.hungry = false; } else { S.res.food = 0; if (!S.hungry) addLog(W, "Food is running low. Everyone works a little slower."); S.hungry = true; } }
+    S.eatT += DT; if (S.eatT > 300) { S.eatT = 0; const need = S.people.filter(p => !p.asleep).length; if (S.res.food >= need) { S.res.food -= need; S.hungry = false; } else { S.res.food = 0; if (!S.hungry) addLog(W, "Food is running low. Everyone works a little slower."); S.hungry = true; } }
     if (S.rally) { S.rally.t += DT; if (S.rally.t > 120) { addLog(W, "The rally is over. Everyone goes back to their own work."); S.rally = null; } }
     S.roleT -= DT; if (S.roleT <= 0) { S.roleT = 20; assignRoles(W); }
-    S.planT -= DT; if (S.planT <= 0) { S.planT = 90; plan(W); }
+    S.planT -= DT; if (S.planT <= 0) { S.planT = 150; plan(W); }
     // newcomers
     S.arriveT -= DT;
     if (S.arriveT <= 0) {
@@ -536,23 +657,40 @@ export function step(W) {
       if (bedsTotal(W) > n && S.res.food >= 12 + n * 2 && !night(H)) {
         const e = W.trail.find(q => !hidden(W, q.x, q.y)) || { x: 0, y: 0 }, p = newPerson(W, e.x, e.y), cm = camp(W), c = cm ? doorOf(cm) : { x: 0, y: 0 };
         p.state = "arrive"; p.tx = c.x; p.ty = c.y; p.act = "Arriving in the village"; p.home = homeFor(W); p.role = "wood";
-        S.people.push(p); S.arriveT = 600 + n * 120;
+        S.people.push(p); S.arriveT = 900 + n * 240;
         addLog(W, p.name + " (" + p.trait + ") arrived and wants to live here.");
         W.events.push({ k: "arrive", p });
         if (S.people.length >= 7) milestone(W, "pop7", "Seven Souls", "The village grows. The Quarry is unlocked.");
-        if (S.people.length >= 10) milestone(W, "pop10", "Ten Villagers", "A real village now. The Well is unlocked.");
+        if (S.people.length >= 8) milestone(W, "pop8", "Eight Villagers", "Enough hands for a shepherd. The Sheepfold is unlocked.");
+        if (S.people.length >= 10) milestone(W, "pop10", "Ten Villagers", "A real village now. The Well and the Tavern are unlocked.");
+        if (S.people.length >= 12) milestone(W, "pop12", "Twelve Villagers", "Time for a bell. The Chapel is unlocked.");
+        if (S.people.length >= 15) milestone(W, "pop15", "Fifteen Villagers", "The village needs a great hall. The Longhouse is unlocked.");
       }
     }
     if (!S.ms.tarn && S.tick % 40 === 0) for (const ch of W.chunks.values()) if (ch.shore.some(s => !hidden(W, s.x, s.y))) { milestone(W, "tarn", "Found the Water", "Clear water nearby. Fish!"); break; }
   }
   for (const p of S.people) updatePerson(W, p, H);
   if (S.dog) updateDog(W, H);
+  if (S.sheep.length) for (const sh of S.sheep) {
+    const f = S.b.find(b => b.id === sh.f); if (!f) continue; sh.moving = false;
+    if (night(H)) continue;
+    if (sh.t > 0) { sh.t -= DT; continue; }
+    if (!sh.tx) { sh.tx = f.x + .6 + rnd(W) * (f.a - 1.2); sh.ty = f.y + .6 + rnd(W) * (f.b - 1.2); }
+    const dx = sh.tx - sh.x, dy = sh.ty - sh.y, L = Math.hypot(dx, dy);
+    if (L < .1) { sh.tx = 0; sh.t = 2 + rnd(W) * 7; continue; }
+    const m = Math.min(L, .3 * DT); sh.x += dx / L * m; sh.y += dy / L * m; sh.fx = dx - dy >= 0 ? 1 : -1; sh.moving = true;
+  }
+  if (S.phase === "settled") {
+    const chap = S.b.find(b => b.done && b.type === "chapel");
+    if (chap) { const prev = clockOf(S, S.tick - 1).hour; if ((prev < 18 && H >= 18) || (clockOf(S).wd === 0 && prev < 9.5 && H >= 9.5)) W.events.push({ k: "bell", b: chap }); }
+    if (!S.ms.flowers && S.tick % 40 === 0 && S.people.some(p => flowerV(p.x, p.y) > .45)) milestone(W, "flowers", "Flower Meadow", "The villagers found a meadow full of flowers. The Apiary is unlocked.");
+  }
 }
 // ---------- Dunčo, the village dog ----------
 function updateDog(W, H) {
   const S = W.S, d = S.dog, ow = S.people.find(p => p.id === d.owner) || S.people[0]; if (!ow) return;
   d.moving = false;
-  const step = (spd) => { const dx = d.tx - d.x, dy = d.ty - d.y, L = Math.hypot(dx, dy); if (L < .15) return true; const m = Math.min(L, spd * DT), nx = d.x + dx / L * m, ny = d.y + dy / L * m; if (isWater(nx, ny) || steep(d.x, d.y, nx, ny)) { d.t = 0; d.tx = d.x; d.ty = d.y; return true; } d.x = nx; d.y = ny; d.fx = dx >= -dy ? 1 : -1; d.moving = true; return false; };
+  const step = (spd) => { const dx = d.tx - d.x, dy = d.ty - d.y, L = Math.hypot(dx, dy); if (L < .15) return true; const m = Math.min(L, spd * DT), nx = d.x + dx / L * m, ny = d.y + dy / L * m; if ((wet(nx, ny) && !isRiver(nx, ny)) || steep(d.x, d.y, nx, ny)) { d.t = 0; d.tx = d.x; d.ty = d.y; return true; } d.x = nx; d.y = ny; d.fx = dx >= -dy ? 1 : -1; d.moving = true; return false; };
   if (ow.asleep || S.phase !== "settled" && ow.state === "follow") {
     if (ow.asleep) { const cm = camp(W); const c = cm ? doorOf(cm) : { x: S.wagon.x, y: S.wagon.y + 1 }; d.tx = c.x + .8; d.ty = c.y + .3; d.sleep = step(1.2); return; }
   }
@@ -600,12 +738,13 @@ export function act(W, a) {
     addLog(W, "The Mayor chose a place to settle. The wagon rolls on."); S.rev++; return null;
   }
   if (a.k === "place") {
-    const why = canPlace(W, a.type, a.x, a.y, true); if (why) return why;
-    addBuilding(W, a.type, a.x, a.y, "mayor"); addLog(W, "The Mayor ordered a " + TYPES[a.type].name + "."); S.roleT = 0; S.rev++; return null;
+    const sh = planShape(W, a.type, a.x, a.y, true); if (sh.err) return sh.err;
+    addBuilding(W, a.type, sh.x, sh.y, "mayor", sh); addLog(W, "The Mayor ordered a " + TYPES[a.type].name + "."); S.roleT = 0; S.rev++; return null;
   }
   if (a.k === "cancel") {
     const b = S.b.find(q => q.id === a.id); if (!b || b.done || b.type === "camp") return "Can't cancel that.";
-    const T = TYPES[b.type]; for (const k in T.cost) S.res[k] += (T.cost[k] - (b.need[k] || 0));
+    const T = TYPES[b.type];
+    const c0 = b.cost0 || TYPES[b.type].cost; for (const k in c0) S.res[k] += (c0[k] - (b.need[k] || 0));
     occupy(W, b, false); S.b.splice(S.b.indexOf(b), 1); for (const p of S.people) if (p.obj && p.obj.b === b.id) { p.obj = null; p.state = "idle"; p.t = .5; }
     addLog(W, "The Mayor cancelled a " + T.name + "."); W.events.push({ k: "removed", b }); S.rev++; return null;
   }

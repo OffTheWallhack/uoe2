@@ -96,9 +96,9 @@ function fillGrid() {
     for (const t of M.BUILD_MENU) {
       const T = M.TYPES[t], locked = T.unlock && !S.ms[T.unlock]; if (!thumbs[t]) thumbs[t] = G.thumb(t, 44);
       const cost = Object.entries(T.cost).map(([k, v]) => v + " " + k).join(", ");
-      const short = { pit: "Pit", hut: "Hut", store: "Store", wcut: "Wood", forage: "Forage", fisher: "Fish", quarry: "Quarry", field: "Field", well: "Well", torch: "Torch", bench: "Bench" }[t];
+      const short = { pit: "Pit", hut: "Hut", longhouse: "Long", store: "Store", wcut: "Wood", forage: "Forage", fisher: "Fish", quarry: "Quarry", field: "Field", mill: "Mill", fold: "Sheep", apiary: "Bees", well: "Well", tavern: "Tavern", chapel: "Chapel", tower: "Tower", bridge: "Bridge", fill: "Fill", torch: "Torch", bench: "Bench" }[t] || t;
       const c = document.createElement("canvas"); c.width = 44; c.height = 44; c.getContext("2d").drawImage(thumbs[t], 0, 0);
-      g.appendChild(cbtn(short, c, 0, () => { buildType = t; view.ghost = null; showPlace(true); gridSig = ""; selId = 0; selKey = null; }, { on: buildType === t, locked, title: locked ? M.UNLOCK_TEXT[T.unlock] : T.name + " · " + cost }));
+      g.appendChild(cbtn(short, c, 0, () => { buildType = t; if (t === "bridge") toast("", "Tap on the water at the narrow spot where the bridge should go."); if (t === "fill") toast("", "Tap on shallow water right by the shore."); view.ghost = null; showPlace(true); gridSig = ""; selId = 0; selKey = null; }, { on: buildType === t, locked, title: locked ? M.UNLOCK_TEXT[T.unlock] : T.name + " · " + cost }));
     }
   }
 }
@@ -115,6 +115,7 @@ function fillSel() {
       if (!b.done) { para(box, "Being built · " + Math.round(b.prog * 100) + "% · " + (b.by === "mayor" ? "your order" : "the villagers' own idea"), "meta"); const bar = document.createElement("div"); bar.className = "bar"; const i = document.createElement("i"); i.style.width = Math.round(b.prog * 100) + "%"; bar.appendChild(i); box.appendChild(bar); }
       else if (b.type === "field") para(box, ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe, ready to harvest."][b.stage] + " " + M.CROPS[b.crop].name + (b.auto ? " (their choice)." : " (your choice)."));
       else para(box, T.d);
+      if (b.upTo) para(box, "Being rebuilt into a " + M.TYPES[b.upTo].name + " · " + Math.round(b.prog * 100) + "%", "meta");
       if (OWNER) {
         const row = document.createElement("div"); row.className = "row";
         if (b.type === "field") for (const c in M.CROPS) { const bt = document.createElement("button"); bt.className = "btn" + (b.crop === c && !b.auto ? " on" : ""); bt.textContent = M.CROPS[c].name; bt.addEventListener("click", () => doAct({ k: "crop", id: b.id, crop: c })); row.appendChild(bt); }
@@ -174,7 +175,7 @@ addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=
 function tap(cx, cy) {
   const w = G.toWorld(cx, cy), S = W.S;
   if (OWNER && S.phase === "choose") { const why = M.judgeSettle(W, w.x, w.y); view.ghost = { kind: "settle", x: w.x, y: w.y, ok: !why }; banner(why || "A good place. Settle here?", why ? "Pick another spot." : "Trees nearby will be cleared."); $("settlebar").hidden = !!why; return; }
-  if (OWNER && buildType) { const T = M.TYPES[buildType], x = Math.round(w.x - T.a / 2), y = Math.round(w.y - T.b / 2), why = M.canPlace(W, buildType, x, y, true); view.ghost = { kind: "build", type: buildType, x, y, ok: !why, why }; showPlace(true); return; }
+  if (OWNER && buildType) { const sh = M.planShape(W, buildType, w.x, w.y, true), T = M.TYPES[buildType]; view.ghost = { kind: "build", type: buildType, x: sh.x ?? Math.round(w.x), y: sh.y ?? Math.round(w.y), a: sh.a || T.a, b: sh.b || T.b, ok: !sh.err, why: sh.err, tx: w.x, ty: w.y }; showPlace(true); return; }
   const info = G.hitAt(w.vx, w.vy); tip.hidden = true;
   if (info && info.b) { selId = info.b; selInfo = null; } else { selId = 0; selInfo = info; }
   selKey = null; fillSel();
@@ -183,7 +184,7 @@ function tap(cx, cy) {
 $("mm").addEventListener("pointerdown", e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(), c = e.currentTarget, u = (e.clientX - r.left) / r.width * c.width, v = (e.clientY - r.top) / r.height * c.height, p = G.minimapToWorld(u, v); if (p) { centerOn(p.x, p.y); mode = null; } });
 $("zin").addEventListener("click", () => zoomStep(1)); $("zout").addEventListener("click", () => zoomStep(-1)); $("zworld").addEventListener("click", fitWorld);
 $("settle").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "settle", x: g.x, y: g.y }); });
-$("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "place", type: g.type, x: g.x, y: g.y }); });
+$("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "place", type: g.type, x: g.tx, y: g.ty }); });
 $("placecancel").addEventListener("click", () => { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
 $("center").addEventListener("click", () => { const c = M.camp(W); if (c) centerOn(c.x + 1.5, c.y + 1.5); else centerOn(W.S.wagon.x, W.S.wagon.y); if (view.zoom < 2) setZoom(3); });
 const sheet = id => { for (const s of ["logsheet", "menusheet"]) $(s).hidden = s !== id || !$(s).hidden; };

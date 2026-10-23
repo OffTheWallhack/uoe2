@@ -79,12 +79,21 @@ const SAND = [[214, 196, 146], [226, 210, 160], [236, 224, 180]], WETSAND = [[17
 function pix(ch, gx, gy, P, x, y, face, z) {
   const g = ch.g, i = Math.min(C4 - 1, Math.floor((x - ch.x0) * 4)), j = Math.min(C4 - 1, Math.floor((y - ch.y0) * 4)), k = j * C4 + i, h = M.ih(gx, gy), h2 = M.ih(gx * 7 + 3, gy * 5 + 1);
   const lk = g.lk[k], lf = g.lf[k], fd = g.fd[k];
+  const ov = M.overAt(x, y);
+  if (ov && ov.k === "b") { // bridge: plank deck, dark posts on the sides
+    if (face > 1) return (Math.floor((ov.d ? x : y) * 3) % 3 === 0) ? [70, 48, 30] : [104, 74, 46];
+    const along = ov.d ? x : y, across = ov.d ? y : x, fa = ((across % 1) + 1) % 1;
+    if (fa < .13 || fa > .87) return [92, 64, 40];
+    let c = (((along * 3.2) % 1 + 1) % 1) < .16 ? [96, 68, 42] : h < .5 ? [168, 124, 78] : [150, 108, 66]; if (P.snow && h2 < .6) c = [232, 238, 244]; return c;
+  }
   if (face > 1) { // cliff face: layered rock
     const hh = hR(x, y); if (hh - z < 1.3) return P.snow ? P.g[2] : (hh < 3 ? SAND[0] : P.g[0]);
     let c = ROCK[((Math.floor(z / 3) + (h < .2 ? 1 : 0)) & 1) + (h2 < .3 ? 2 : 0)]; if (h2 > .93) c = ROCK[3];
     const sh = face === 2 ? .72 : .98; return [c[0] * sh, c[1] * sh, c[2] * sh];
   }
   const ht = z;
+  if (ov && ov.k === "f") { let c = h < .33 ? [146, 138, 124] : h < .66 ? [170, 160, 142] : [124, 116, 104]; if (h2 < .1) c = [196, 188, 170]; if (P.snow && h2 < .5) c = P.g[2]; return c; }
+  if (M.isRoad(x, y)) { const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1, edge = Math.min(fx, fy, 1 - fx, 1 - fy); if (edge > .06 || M.isRoad(x + (fx < .5 ? -1 : 1), y) || M.isRoad(x, y + (fy < .5 ? -1 : 1))) { let c = h < .3 ? [140, 128, 108] : h < .7 ? [162, 150, 128] : [122, 110, 94]; if (h2 < .08) c = [196, 186, 164]; if (P.snow && h2 < .7) c = P.g[1]; return c; } }
   if (lk > .7) { const dp = M.clamp((lk - .7) / .08, 0, 1); let c = P.water[dp > .5 ? 0 : 1]; if (h2 < .06) c = P.water[2]; if (!P.snow && ((((x * 3 + y * 2) % 1) + 1) % 1 < .08)) c = P.water[2]; return c; }
   if (g.rv[k] < 2.2) { // the stream and its pebbly banks
     if (M.isRiver(x, y)) { let c = P.snow ? [176, 200, 216] : [70, 128, 160]; if (h2 < .1 || (((x + y * 1.7) * 2.5) % 1 + 1) % 1 < .12) c = P.snow ? [214, 228, 238] : [130, 180, 200]; return c; }
@@ -224,6 +233,13 @@ function consume() {
   while (df.length && m < 6) { const [cx, cy, r] = df.shift(); m++; repaintWorldRect(cx - r - 1.5, cy - r - 1.5, cx + r + 1.5, cy + r + 1.5, true); }
   for (const e of W.events) {
     if (e.k === "build" || e.k === "built" || e.k === "field" || e.k === "removed") { const b = e.b; repaintWorldRect(b.x - .5, b.y - .5, b.x + b.a + .5, b.y + b.b + .5); }
+    else if (e.k === "road") for (const k of e.tiles) { const [x, y] = k.split(":").map(Number); repaintWorldRect(x - .6, y - .6, x + 1.6, y + 1.6); }
+    else if (e.k === "over") {
+      for (let cy = Math.floor((e.y0 - 1) / C); cy <= Math.floor((e.y1 + 1) / C); cy++) for (let cx = Math.floor((e.x0 - 1) / C); cx <= Math.floor((e.x1 + 1) / C); cx++) {
+        HC.delete(cx + "," + cy); const ch = W.chunks.get(M.ckey(cx, cy)); if (ch) { ch.g = null; ch.hf = null; ch.hm = undefined; ch.bakedSeason = null; ch.gc = null; ch.fc = null; ch.ov = null; }
+      }
+    }
+    else if (e.k === "bell") { floats.push({ x: e.b.x + 3.4, y: e.b.y + .9, t: "ding dong", c: "#f0c860", a: 0 }); }
   }
 }
 // ---------- overview tiles (1/4 scale) ----------
@@ -245,7 +261,7 @@ function buildOverview(ch) {
 // ---------- sprites for things ----------
 function treeSprite(t) { if (t.t === "dwarf") return SP.dwarf[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
 const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
-function bSprite(b) { const B = SP.bld; if (B[b.type]) return B[b.type]; if (b.type === "camp") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
+function bSprite(b) { const B = SP.bld; if (b.type === "apiary") return B.skeps; if (b.type === "fold") return B.shed; if (B[b.type]) return B[b.type]; if (b.type === "camp") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
 export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, sel: 0, hourOverride: null, seasonOverride: null, weatherOverride: null };
 let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
@@ -290,7 +306,7 @@ export function frame(now, rdt) {
     for (const ch of vis) { if (!ch.gc || ch.bakedSeason !== season) continue; if ((!ch.ov || ch.ovDirty) && ob < 4 && (!ch.ov || performance.now() - (ch.ovAt || 0) > 1500)) { buildOverview(ch); ob++; } }
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
     for (const ch of vis) if (ch.ov && !ch.fog.every(v => v)) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.ov, X0 - vx0, Y0 - vy0 - OVM * 4, CW, ch.ov.height * 4); }
-    ctx.fillStyle = "#f4e6c0"; for (const p of S.people) if (!p.asleep) ctx.fillRect(Math.round(sx(p.x, p.y) - vx0 - 2), Math.round(gyH(p.x, p.y) - vy0 - 6), 4, 6);
+    ctx.fillStyle = "#f4e6c0"; for (const p of S.people) if (!p.asleep && !p.inside) ctx.fillRect(Math.round(sx(p.x, p.y) - vx0 - 2), Math.round(gyH(p.x, p.y) - vy0 - 6), 4, 6);
   } else {
     for (const ch of vis) if (ch.gc) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.gc, X0 - vx0, Y0 - vy0); }
     if (k >= 1) { ctx.fillStyle = rgb(PAL[season].water[2]); const ph = Math.floor(T * 2); for (const ch of vis) { const wp = ch.waterPx; if (!wp || !wp.length) continue; const [X0, Y0] = chunkOrigin(ch), n = wp.length / 2; for (let i = 0; i < Math.min(12, n / 30); i++) { const q = ((ph * 7919 + i * 104729 + ch.cx * 31) % n) * 2; ctx.fillRect(X0 + wp[q] - vx0, Y0 + wp[q + 1] - vy0, 2, 1); } } }
@@ -321,7 +337,9 @@ function drawEntities(vis, hour, VWa, VHa) {
   for (const ch of vis) {
     for (const t of ch.trees) {
       const x0 = sx(t.x, t.y) - vx0, y0 = gyH(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
-      if (t.felled) { if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: "A young tree will grow here again." }, VWa, VHa); continue; }
+      if (t.felled) {
+        if (t.sapling) { const g = M.clamp(1 - (t.regrow || 0) / 1200, 0, .999), s2 = SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + (g > .5 ? 1 : 0)]; spr(ents, s2, t.x, t.y, t.x + t.y, { t: "Young tree", d: "Planted by the forester. Growing." }, VWa, VHa); continue; }
+        if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: "A young tree will grow here again." }, VWa, VHa); continue; }
       const a = treeSprite(t), x = x0 - a.ax, y = y0 - a.ay, near = hv && Math.abs(hv.vx - x0) < 12 && hv.vy > y && hv.vy < y0 + 2;
       ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: { oak: "Oak", birch: "Birch", dwarf: "Dwarf pine" }[t.t] || "Spruce", d: t.t === "dwarf" ? "Kosodrevina. Low, tough, smells of resin." : t.logs + " loads of wood left." }] : null });
     }
@@ -346,11 +364,18 @@ function drawEntities(vis, hour, VWa, VHa) {
       if (R0.food > 0) spr(ents, SP.food[tier(R0.food)], st.x - .5, st.y - 1.1, st.x + st.y - 1.6, inf, VWa, VHa);
       continue;
     }
+    if (b.type === "bridge" || b.type === "fill") { if (!b.done) { const ws = { x: b.x + b.a / 2, y: b.y + b.b / 2 }, X = Math.round(sx(ws.x, ws.y) - vx0), Y = Math.round(gyH(ws.x, ws.y) - vy0); ents.push({ depth: ws.x + ws.y, draw: () => siteMarks(b), box: [X - 16, Y - 10, X + 16, Y + 6, info] }); } else { const X = Math.round(sx(b.x + b.a / 2, b.y + b.b / 2) - vx0), Y = Math.round(gyH(b.x + b.a / 2, b.y + b.b / 2) - vy0); hitsPush([X - 10, Y - 6, X + 10, Y + 4, info]); } continue; }
+    if (b.type === "fold") drawFold(ents, b, info);
     const s = bSprite(b); if (!s) continue;
-    const ox = b.type === "well" ? -.2 : 0, X = sx(b.x + ox, b.y + ox) - s.ax - vx0, Y = sy(b.x + ox, b.y + ox) - bH(b) - s.ay - vy0;
+    const ox = b.type === "well" ? -.2 : 0, fo = b.type === "fold" ? .15 : 0, X = sx(b.x + ox + fo, b.y + ox + fo) - s.ax - vx0, Y = sy(b.x + ox + fo, b.y + ox + fo) - bH(b) - s.ay - vy0;
     if (X > VWa || Y > VHa || X + s.w < 0 || Y + s.h < 0) continue;
-    const depth = b.x + b.a + b.y + b.b - .5;
+    const depth = b.type === "fold" ? b.x + b.y + 3.2 : b.x + b.a + b.y + b.b - .5;
+    if (b.upTo) { info.t = M.TYPES[b.upTo].name + " (rebuilding)"; info.d = "The villagers are turning this " + M.TYPES[b.type].name + " into a " + M.TYPES[b.upTo].name + ": " + Math.round(b.prog * 100) + "%."; ents.push({ depth: depth + 1, draw: () => { ctx.drawImage(s.canvas, X, Y); scaffold(b); }, box: [X, Y, X + s.w, Y + s.h, info] }); continue; }
     if (b.done) {
+      if (b.type === "chapel") { const t = SP.bld.belltower, tx = b.x + b.a - 1.4, ty = b.y + 1, z = bH(b); spr(ents, t, tx, ty, b.x + b.a + b.y + b.b - .4, info, VWa, VHa, z); }
+      if (b.type === "tavern") spr(ents, SP.bld.sign, b.x + b.a + .2, b.y + b.b - .2, b.x + b.a + b.y + b.b + .1, info, VWa, VHa, bH(b));
+      if (b.type === "mill") { const z = bH(b), hx = sx(b.x, b.y) - s.ax + s.hub[0] - vx0, hy = sy(b.x, b.y) - z - s.ay + s.hub[1] - vy0, fast = (b.grind || 0) > W.S.tick; ents.push({ depth: depth + .05, draw: () => drawSails(hx, hy, fast) }); }
+      if (b.type === "apiary" && season !== "winter") { const cx = sx(b.x + 1, b.y + .5) - vx0, cy = gyH(b.x + 1, b.y + .5) - vy0 - 8; ents.push({ depth: depth + .1, draw: () => bees(cx, cy) }); }
       ents.push({ depth, draw: () => ctx.drawImage(s.canvas, X, Y), box: [X, Y, X + s.w, Y + s.h, info] });
       if (b.type === "torch") ents.push({ depth: depth + .01, draw: () => flame(X + s.flame[0], Y + s.flame[1], hour) });
     } else {
@@ -365,7 +390,7 @@ function drawEntities(vis, hour, VWa, VHa) {
   spr(ents, ws, wg.alongY ? wg.x - .65 : wg.x - 1.2, wg.alongY ? wg.y - 1.2 : wg.y - .65, wg.x + wg.y + .8, { t: "Wagon", d: S.phase === "choose" ? "Everything the settlers own. Waiting for the Mayor's decision." : "It carried the first settlers and all their tools." }, VWa, VHa);
   { const o = S.ox, x = Math.round(sx(o.x, o.y) - vx0), y = Math.round(gyH(o.x, o.y) - vy0), fl = S.phase === "travel" ? (wg.hx - wg.hy >= 0 ? 1 : -1) : 1, fr = S.phase === "travel" ? Math.floor(T * 5) % 2 : 0; ents.push({ depth: o.x + o.y, draw: () => drawOx(x, y, fl, fr), box: [x - 5, y - 7, x + 6, y + 1, { t: "Ox", d: "Pulled the wagon all the way here. Now it grazes." }] }); }
   for (const p of S.people) {
-    if (p.asleep) continue; const x = Math.round(sx(p.x, p.y) - vx0), y = Math.round(gyH(p.x, p.y) - vy0); if (x < -6 || x > VWa + 6 || y < -4 || y > VHa + 10) continue;
+    if (p.asleep || p.inside) continue; const x = Math.round(sx(p.x, p.y) - vx0), y = Math.round(gyH(p.x, p.y) - vy0); if (x < -6 || x > VWa + 6 || y < -4 || y > VHa + 10) continue;
     if (M.hidden(W, p.x, p.y)) continue;
     const fr = p.moving ? Math.floor(T * 6 + p.id) % 2 : 0;
     ents.push({ depth: p.x + p.y + .2, draw: () => drawPerson(x, y, p, fr), box: [x - 3, y - 9, x + 4, y + 1, { t: p.name, d: (p.act || "") + ". " + p.trait[0].toUpperCase() + p.trait.slice(1) + "." }], p });
@@ -377,6 +402,35 @@ function drawEntities(vis, hour, VWa, VHa) {
 }
 let textAnchors = [];
 function hitsPush(b) { hits.push(b); }
+function siteMarks(b) {
+  ctx.fillStyle = "#8a6038";
+  for (let j = 0; j < b.b; j++) for (let i = 0; i < b.a; i++) { const x = b.x + i + .5, y = b.y + j + .5, X = Math.round(sx(x, y) - vx0), Y = Math.round(gyH(x, y) - vy0); if ((i + j) % 2 === 0 || b.prog * b.a * b.b > i + j * b.a) { ctx.fillRect(X - 5, Y - 1, 10, 2); ctx.fillStyle = "#5a3c24"; ctx.fillRect(X - 1, Y - 6, 1, 6); ctx.fillStyle = "#8a6038"; } }
+}
+function drawFold(ents, b, info) {
+  const z = bH(b), P = [[b.x, b.y], [b.x + b.a, b.y], [b.x + b.a, b.y + b.b], [b.x, b.y + b.b]];
+  const side = (p, q, depth, gate) => ents.push({ depth, draw: () => {
+    const L = Math.hypot(q[0] - p[0], q[1] - p[1]), n = Math.round(L / .9);
+    let prev = null; for (let i = 0; i <= n; i++) { const t = i / n, x = p[0] + (q[0] - p[0]) * t, y = p[1] + (q[1] - p[1]) * t, X = Math.round(sx(x, y) - vx0), Y = Math.round(sy(x, y) - z - vy0);
+      if (gate && t > .4 && t < .62) { prev = null; continue; }
+      ctx.fillStyle = "#5a3c24"; ctx.fillRect(X, Y - 5, 1, 5);
+      if (prev) { ctx.fillStyle = "#8a6038"; for (const hh of [4, 2]) { const L2 = Math.max(Math.abs(X - prev[0]), Math.abs(Y - prev[1])); for (let s = 0; s <= L2; s++) ctx.fillRect(Math.round(prev[0] + (X - prev[0]) * s / L2), Math.round(prev[1] + (Y - prev[1]) * s / L2) - hh, 1, 1); } }
+      prev = [X, Y]; } } });
+  side(P[0], P[1], b.x + b.y, false); side(P[3], P[0], b.x + b.y, false);
+  side(P[1], P[2], b.x + b.a + b.y + b.b, false); side(P[2], P[3], b.x + b.a + b.y + b.b, true);
+  for (const sh of W.S.sheep) { if (sh.f !== b.id) continue; const x = Math.round(sx(sh.x, sh.y) - vx0), y = Math.round(gyH(sh.x, sh.y) - vy0); ents.push({ depth: sh.x + sh.y + .1, draw: () => drawSheep(x, y, sh), box: [x - 4, y - 5, x + 5, y + 1, { t: "Sheep", d: "Wool, milk and very strong opinions about grass." }] }); }
+}
+function drawSheep(x, y, s) {
+  px(ctx, x - 3, y, 7, 1, "#000", .2); const d = s.fx || 1, graze = !s.moving && Math.floor(T + s.x) % 3 === 0, hx = d > 0 ? x + 2 : x - 3, hy = graze ? y - 1 : y - 3;
+  px(ctx, x - 3, y - 4, 6, 3, "#ecebe2"); px(ctx, x - 3, y - 4, 6, 1, "#fbfaf4"); px(ctx, x - 3, y - 2, 6, 1, "#c8c6bb");
+  px(ctx, hx, hy, 2, 2, "#40372f"); px(ctx, x - 2, y - 1, 1, 1, "#3a322c"); px(ctx, x + 1, y - 1, 1, 1, "#3a322c");
+}
+function bees(cx, cy) { ctx.fillStyle = "#f0d040"; for (let i = 0; i < 6; i++) { const a = T * (1.3 + i * .21) + i * 2.1, r = 5 + (i % 3) * 3; ctx.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a * 1.3) * r * .5), 1, 1); } }
+function drawSails(hx, hy, fast) {
+  const R = 20, ang = T * (fast ? 1.6 : .5);
+  for (let q = 0; q < 4; q++) { const th = ang + q * Math.PI / 2, dy = R * Math.cos(th) / 8.94, dz = R * Math.sin(th), ex = -8 * dy, ey = 4 * dy - dz, L = Math.hypot(ex, ey) || 1, ux = ex / L, uy = ey / L, nx = -uy, ny = ux;
+    for (let i = 3; i < L; i++) { const x = hx + ux * i, y = hy + uy * i; ctx.fillStyle = "#6e4c30"; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); if (i > 5 && i % 3 !== 0) { ctx.fillStyle = "#e6dcc2"; ctx.fillRect(Math.round(x + nx * 2), Math.round(y + ny * 2), 1, 1); ctx.fillRect(Math.round(x + nx * 3), Math.round(y + ny * 3), 1, 1); ctx.fillStyle = "#b8ac8e"; ctx.fillRect(Math.round(x + nx), Math.round(y + ny), 1, 1); } } }
+  ctx.fillStyle = "#3a2a1c"; ctx.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3);
+}
 function scaffold(b) {
   ctx.fillStyle = "#8a6038";
   const pts = [[b.x, b.y + b.b], [b.x + b.a, b.y + b.b], [b.x + b.a, b.y], [b.x, b.y]];
@@ -437,7 +491,9 @@ function drawGlow(n, hour) {
 }
 // a home's windows glow when someone is up inside: in the morning one by one as people wake, in the evening until the last one goes to bed
 function lit(b, hour) {
-  if (!b.done || !M.TYPES[b.type].beds) return false;
+  if (!b.done) return false;
+  if (b.type === "tavern" || b.type === "chapel") return W.S.people.some(p => p.inside && (p.state === "inn" || p.state === "church") && Math.hypot(p.x - b.x - b.a / 2, p.y - b.y - b.b) < 3);
+  if (!M.TYPES[b.type].beds) return false;
   let any = false;
   for (const p of W.S.people) { if (p.home !== b.id) continue; if (p.state === "morning") return true; if (hour >= 17.5 && hour < M.sleepAt(p) && p.state !== "sleep") any = true; }
   return any;
@@ -450,6 +506,7 @@ function drawWeather(wk, dt) {
 const SAY = ["Smells like rain.", "Good soil here.", "Listen, an eagle.", "I miss bread.", "Nice view.", "My back hurts.", "Who took my axe?", "Lovely day.", "The Mayor is watching.", "Warm fire tonight?"];
 function drawTexts(dt) {
   ctx.font = "7px ui-monospace,Menlo,Consolas,monospace"; ctx.textBaseline = "top";
+  for (const b of W.S.b) if (b.type === "tavern" && lit(b, 22) && Math.random() < dt * .6) floats.push({ x: b.x + 1 + Math.random() * 2, y: b.y + .5, t: Math.random() < .5 ? "♪" : "♫", c: "#f0c860", a: 0 });
   for (const f of floats) { f.a += dt; ctx.globalAlpha = Math.max(0, 1 - f.a / 2.2); ctx.fillStyle = f.c; ctx.fillText(f.t, Math.round(sx(f.x, f.y) - vx0 - 8), Math.round(gyH(f.x, f.y) - vy0 - 14 - f.a * 6)); } ctx.globalAlpha = 1; floats = floats.filter(f => f.a < 2.2);
   for (const [p, box] of textAnchors) {
     let s = says.get(p.id);
@@ -470,7 +527,7 @@ function drawGhost() {
     for (let a = 0; a < 6.28; a += .05) { if (Math.floor(a * 8 + T * 2) % 2 === 0) continue; ctx.fillRect(Math.round(x + Math.cos(a) * r * 11.3) - 1, Math.round(y + Math.sin(a) * r * 5.66), 2, 1); }
     px(ctx, x, y - 14, 1, 14, "#5a3a24"); px(ctx, x + 1, y - 14, 5, 3, col); return;
   }
-  const T0 = M.TYPES[g.type], x0 = g.x, y0 = g.y, a = T0.a, b = T0.b;
+  const T0 = M.TYPES[g.type], x0 = g.x, y0 = g.y, a = g.a || T0.a, b = g.b || T0.b;
   const P = [[x0, y0], [x0 + a, y0], [x0 + a, y0 + b], [x0, y0 + b]].map(([x, y]) => [sx(x, y) - vx0, gyH(x, y) - vy0]);
   ctx.globalAlpha = .28; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]); for (const q of P) ctx.lineTo(q[0], q[1]); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
   ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
@@ -494,6 +551,7 @@ export function thumb(type, size = 44) {
   if (!SP) setSeason(season);
   const c = document.createElement("canvas"); c.width = size; c.height = size; const x = c.getContext("2d"); x.imageSmoothingEnabled = false;
   if (type === "field") { x.fillStyle = "#6a4a30"; x.beginPath(); x.moveTo(size / 2, size * .3); x.lineTo(size * .95, size * .55); x.lineTo(size / 2, size * .8); x.lineTo(size * .05, size * .55); x.closePath(); x.fill(); x.strokeStyle = "#d6aa40"; for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(size * (.2 + i * .1), size * (.6 - i * .05)); x.lineTo(size * (.4 + i * .1), size * (.7 - i * .05)); x.stroke(); } return c; }
+  if (type === "bridge" || type === "fill") { const f = type === "fill"; x.fillStyle = f ? "#2e5a7a" : "#3a6a8a"; x.fillRect(0, size * .55, size, size * .3); x.fillStyle = f ? "#a89c84" : "#a8743e"; if (f) { x.beginPath(); x.moveTo(size * .1, size * .7); x.lineTo(size * .5, size * .45); x.lineTo(size * .9, size * .7); x.lineTo(size * .5, size * .85); x.fill(); } else { x.fillRect(size * .08, size * .5, size * .84, size * .12); x.fillStyle = "#5a3c24"; for (let i = 0; i < 5; i++) x.fillRect(size * (.1 + i * .2), size * .38, 2, size * .4); } return c; }
   const s = bSprite({ type }); if (!s) return c;
   const k = Math.max(1, Math.floor(Math.min(size / s.w, size / s.h) * 10) / 10), w = s.w * k, h = s.h * k;
   x.drawImage(s.canvas, (size - w) / 2, (size - h) / 2 + 2, w, h); return c;
