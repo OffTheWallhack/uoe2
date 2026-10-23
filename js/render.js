@@ -27,9 +27,35 @@ function fogPattern(ctx) {
   if (!fogPatCanvas) { fogPatCanvas = document.createElement("canvas"); fogPatCanvas.width = FP; fogPatCanvas.height = FP; const x = fogPatCanvas.getContext("2d"), im = x.createImageData(FP, FP); for (let i = 0; i < FP * FP; i++) { im.data[i * 4] = fogPat[i * 3]; im.data[i * 4 + 1] = fogPat[i * 3 + 1]; im.data[i * 4 + 2] = fogPat[i * 3 + 2]; im.data[i * 4 + 3] = 255; } x.putImageData(im, 0, 0); }
   return ctx.createPattern(fogPatCanvas, "repeat");
 }
+// ---------- terrain height (cached samples, 4 per tile, bilinear) ----------
+const HC = new Map(), HS = C4 + 1;
+function hcache(cx, cy) {
+  const k = cx + "," + cy; let h = HC.get(k); if (h) return h;
+  const a = new Float32Array(HS * HS); let mx = 0;
+  for (let j = 0; j < HS; j++) for (let i = 0; i < HS; i++) { const v = M.heightAt(cx * C + i / 4, cy * C + j / 4); a[j * HS + i] = v; if (v > mx) mx = v; }
+  h = { a, mx }; HC.set(k, h); return h;
+}
+export function hR(x, y) {
+  const cx = Math.floor(x / C), cy = Math.floor(y / C), h = hcache(cx, cy).a, fx = (x - cx * C) * 4, fy = (y - cy * C) * 4, i = Math.min(HS - 2, Math.floor(fx)), j = Math.min(HS - 2, Math.floor(fy)), tx = fx - i, ty = fy - j, o = j * HS + i;
+  return (h[o] * (1 - tx) + h[o + 1] * tx) * (1 - ty) + (h[o + HS] * (1 - tx) + h[o + HS + 1] * tx) * ty;
+}
+const gyH = (x, y) => sy(x, y) - hR(x, y);
+// ray through a screen pixel: the visible ground point (x, y, z) and which face (1 top, 2 side facing +x, 3 side facing +y)
+function rayHit(gx, gy, tmax) {
+  const a = (gx + .5) / 8, b = (gy + .5) / 4, x0 = (a + b) / 2, y0 = (b - a) / 2;
+  let t = tmax; while (t > 0 && 8 * t > hR(x0 + t, y0 + t)) t -= .125;
+  if (t < 0) t = 0;
+  let lo = t, hi = Math.min(tmax, t + .125);
+  if (hi > lo) for (let q = 0; q < 5; q++) { const m = (lo + hi) / 2; if (8 * m <= hR(x0 + m, y0 + m)) lo = m; else hi = m; }
+  const x = x0 + lo, y = y0 + lo, z = 8 * lo, h = hR(x, y);
+  let face = 1;
+  if (h - z > 1.1) { const dx = hR(x + .2, y) - hR(x - .2, y), dy = hR(x, y + .2) - hR(x, y - .2); face = Math.abs(dx) > Math.abs(dy) ? 2 : 3; }
+  return { x, y, z, face };
+}
 // ---------- per chunk painting ----------
 const CW = C * 16, CH = C * 8, OVM = 24; // chunk canvas size; overview top margin (1/4 px)
-export const chunkOrigin = ch => [(ch.cx - ch.cy - 1) * C * 8, (ch.cx + ch.cy) * C * 4];
+export const chunkOrigin = ch => [(ch.cx - ch.cy - 1) * C * 8, (ch.cx + ch.cy) * C * 4 - (ch.hm || 0)];
+function chunkMargin(ch) { if (ch.hm === undefined) { let m = 0; for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) m = Math.max(m, hcache(ch.cx + i, ch.cy + j).mx); ch.hm = Math.ceil(m) + 2; ch.hmax = m; } return ch.hm; }
 function samples(ch) {
   if (ch.g) return ch.g;
   const lf = new Float32Array(C4 * C4), fd = new Float32Array(C4 * C4), lk = new Float32Array(C4 * C4);
@@ -49,12 +75,22 @@ function fieldPix(b, x, y, gx, gy, P, h, h2) {
   if (edge) c = mix(c, [70, 52, 36], .45);
   return [c[0] * (.94 + h * .12), c[1] * (.94 + h * .12), c[2] * (.94 + h * .12)];
 }
-function pix(ch, gx, gy, P) {
-  const b0 = (gy + .5) / 4, a = (gx + .5) / 8, x = (a + b0) / 2, y = (b0 - a) / 2;
-  if (Math.floor(x / C) !== ch.cx || Math.floor(y / C) !== ch.cy) return null;
-  const g = ch.g, i = Math.floor((x - ch.x0) * 4), j = Math.floor((y - ch.y0) * 4), k = j * C4 + i, h = M.ih(gx, gy), h2 = M.ih(gx * 7 + 3, gy * 5 + 1);
+const SAND = [[214, 196, 146], [226, 210, 160], [236, 224, 180]], WETSAND = [[178, 160, 116], [196, 178, 132]], ROCK = [[112, 104, 94], [132, 122, 108], [152, 142, 126], [96, 88, 80]];
+function pix(ch, gx, gy, P, x, y, face, z) {
+  const g = ch.g, i = Math.min(C4 - 1, Math.floor((x - ch.x0) * 4)), j = Math.min(C4 - 1, Math.floor((y - ch.y0) * 4)), k = j * C4 + i, h = M.ih(gx, gy), h2 = M.ih(gx * 7 + 3, gy * 5 + 1);
   const lk = g.lk[k], lf = g.lf[k], fd = g.fd[k];
+  if (face > 1) { // cliff face: layered rock
+    const hh = hR(x, y); if (hh - z < 1.3) return P.snow ? P.g[2] : (hh < 3 ? SAND[0] : P.g[0]);
+    let c = ROCK[((Math.floor(z / 3) + (h < .2 ? 1 : 0)) & 1) + (h2 < .3 ? 2 : 0)]; if (h2 > .93) c = ROCK[3];
+    const sh = face === 2 ? .72 : .98; return [c[0] * sh, c[1] * sh, c[2] * sh];
+  }
+  const ht = z;
   if (lk > .7) { const dp = M.clamp((lk - .7) / .08, 0, 1); let c = P.water[dp > .5 ? 0 : 1]; if (h2 < .06) c = P.water[2]; if (!P.snow && ((((x * 3 + y * 2) % 1) + 1) % 1 < .08)) c = P.water[2]; return c; }
+  if (lk > .6 && ht < 2.6) { // beach
+    if (P.snow) return h2 < .5 ? P.g[2] : P.g[1];
+    let c = lk > .675 ? WETSAND[h < .5 ? 0 : 1] : SAND[(h * 2.4) | 0]; if (h2 < .04) c = [236, 232, 220]; if (h2 > .985 && lk < .67) c = [196, 120, 110];
+    return c;
+  }
   if (lk > .675) { let c = h < .5 ? P.dirt[0] : P.dirt[1]; if (h2 < .15) c = P.dirt[2]; return c; }
   const b = M.occAt(W, x, y);
   if (b) { const T = M.TYPES[b.type]; if (T.field) return fieldPix(b, x, y, gx, gy, P, h, h2); if (!T.deco) { let c = P.dirt[(h * 2.6) | 0]; if (P.snow && h2 < .5) c = P.g[1]; return c; } }
@@ -66,26 +102,46 @@ function pix(ch, gx, gy, P) {
     if (P.snow && dn < .75 && h2 > .4) c = P.g[1];
     return c;
   }
-  let t = lf * 2.1 + h * 1.4 - .35; if (fd > .6) t -= .7; if (gx % 2 === gy % 2 && h2 < .5) t += .4; if (w > .18) t -= .6;
+  // slope light: ground facing the upper left is brighter
+  const sl = (hR(x + .25, y) - hR(x - .25, y)) + (hR(x, y + .25) - hR(x, y - .25));
+  let t = lf * 2.1 + h * 1.4 - .35 + M.clamp(sl * .38, -1.6, 1.3); if (fd > .6) t -= .7; if (gx % 2 === gy % 2 && h2 < .5) t += .4; if (w > .18) t -= .6;
   let c = pick(P.g, t); if (h2 < .03) c = P.g[0];
-  if (h2 > .9965 && !P.snow && fd < .55 && w < .1) c = P.flo[(h * 4 * 977 | 0) % P.flo.length];
+  if (sl < -4.2 && !P.snow) c = mix(c, h < .6 ? mix(P.g[0], [20, 30, 16], .3) : ROCK[0], M.clamp((-sl - 4.2) / 4, 0, .7));
+  if (sl < -1 && ((ht + .6) % 6) > 5.2 && h2 < .7) c = mix(c, [0, 0, 0], .18);
+  if (ht > 27 && !P.snow) { const r = (ht - 27) / 12 + (h - .5) * .5 + (lf - .5); if (r > .7) c = ROCK[(h2 * 3) | 0]; else if (r > .35 && h2 < .3) c = mix(c, ROCK[1], .55); }
+  if (ht > 38 + (h - .5) * 4) c = h2 < .15 || sl < -2 ? [206, 216, 228] : [238, 243, 250];
+  if (h2 > .9965 && !P.snow && fd < .55 && w < .1 && ht < 22) c = P.flo[(h * 4 * 977 | 0) % P.flo.length];
   return c;
 }
 function paintRect(ch, pxa, pya, pxb, pyb) {
-  const [X0, Y0] = chunkOrigin(ch); pxa = Math.max(0, pxa); pya = Math.max(0, pya); pxb = Math.min(CW, pxb); pyb = Math.min(CH, pyb);
+  const [X0, Y0] = chunkOrigin(ch), Hh = CH + ch.hm; pxa = Math.max(0, pxa); pya = Math.max(0, pya); pxb = Math.min(CW, pxb); pyb = Math.min(Hh, pyb);
   const w = pxb - pxa, h = pyb - pya; if (w <= 0 || h <= 0) return;
   const P = PAL[season], ctx = ch.gc.getContext("2d"), img = ctx.getImageData(pxa, pya, w, h), d = img.data;
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const c = pix(ch, X0 + pxa + i, Y0 + pya + j, P); if (!c) continue; const o = (j * w + i) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255; }
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const q = (pya + j) * CW + pxa + i, f = ch.hf[q]; if (!f) continue; const pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8; const c = pix(ch, X0 + pxa + i, Y0 + pya + j, P, x, y, f, ch.hz[q]); const o = (j * w + i) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255; }
   ctx.putImageData(img, pxa, pya); ch.ovDirty = true;
 }
+function hitMap(ch) {
+  chunkMargin(ch); const Hh = CH + ch.hm, [X0, Y0] = chunkOrigin(ch), n = CW * Hh, tmax = ch.hmax / 8 + .05;
+  const hp = new Uint16Array(n), hf = new Uint8Array(n), hz = new Uint8Array(n);
+  for (let py = 0; py < Hh; py++) for (let px = 0; px < CW; px++) {
+    const r = rayHit(X0 + px, Y0 + py, tmax); if (Math.floor(r.x / C) !== ch.cx || Math.floor(r.y / C) !== ch.cy) continue;
+    const q = py * CW + px; hf[q] = r.face; hz[q] = Math.min(255, Math.round(r.z)); hp[q] = (Math.min(255, Math.floor((r.y - ch.y0) * 8)) << 8) | Math.min(255, Math.floor((r.x - ch.x0) * 8));
+  }
+  ch.hp = hp; ch.hf = hf; ch.hz = hz;
+}
 function bake(ch) {
-  samples(ch);
-  if (!ch.gc) { ch.gc = document.createElement("canvas"); ch.gc.width = CW; ch.gc.height = CH; }
-  const [X0, Y0] = chunkOrigin(ch), P = PAL[season], ctx = ch.gc.getContext("2d"), img = ctx.createImageData(CW, CH), d = img.data, wp = [];
-  for (let py = 0; py < CH; py++) for (let px = 0; px < CW; px++) { const c = pix(ch, X0 + px, Y0 + py, P); if (!c) continue; const o = (py * CW + px) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255; if (c === P.water[0] || c === P.water[1]) if ((px * 7 + py * 13) % 5 === 0) wp.push(px, py); }
+  samples(ch); if (!ch.hf) hitMap(ch);
+  const Hh = CH + ch.hm;
+  if (!ch.gc) { ch.gc = document.createElement("canvas"); ch.gc.width = CW; ch.gc.height = Hh; }
+  const [X0, Y0] = chunkOrigin(ch), P = PAL[season], ctx = ch.gc.getContext("2d"), img = ctx.createImageData(CW, Hh), d = img.data, wp = [];
+  for (let py = 0; py < Hh; py++) for (let px = 0; px < CW; px++) {
+    const q = py * CW + px, f = ch.hf[q]; if (!f) continue; const pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8;
+    const c = pix(ch, X0 + px, Y0 + py, P, x, y, f, ch.hz[q]); const o = q * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+    if ((c === P.water[0] || c === P.water[1]) && (px * 7 + py * 13) % 5 === 0) wp.push(px, py);
+  }
   ctx.putImageData(img, 0, 0); ch.waterPx = wp; ch.bakedSeason = season; ch.ovDirty = true;
   details(ch, ctx, P);
-  paintFog(ch, 0, 0, CW, CH);
+  paintFog(ch, 0, 0, CW, Hh);
 }
 function details(ch, ctx, P) {
   const [X0, Y0] = chunkOrigin(ch);
@@ -94,34 +150,36 @@ function details(ch, ctx, P) {
     const jx = x + M.ih(Math.floor(x * 3), Math.floor(y)) * .8, jy = y + M.ih(Math.floor(x), Math.floor(y * 3)) * .8;
     if (Math.floor(jx / C) !== ch.cx || Math.floor(jy / C) !== ch.cy) continue;
     if (M.wearAt(W, jx, jy) > .3 || M.lakeV(jx, jy) > .64 || M.occAt(W, jx, jy)) continue;
-    const px = Math.round(sx(jx, jy) - X0), py = Math.round(sy(jx, jy) - Y0);
+    if (M.steep(jx, jy, jx + .5, jy) || M.steep(jx, jy, jx, jy + .5) || M.lakeV(jx, jy) > .6) continue;
+    const px = Math.round(sx(jx, jy) - X0), py = Math.round(gyH(jx, jy) - Y0);
     if (r < .03) { ctx.fillStyle = P.snow ? "#c9d2dc" : "#7e7a72"; ctx.fillRect(px, py, 2, 1); ctx.fillStyle = "#a8a49a"; ctx.fillRect(px, py - 1, 1, 1); }
     else if (r < .05 && !P.snow) { ctx.fillStyle = "#e8dcc4"; ctx.fillRect(px, py - 1, 1, 2); ctx.fillStyle = "#c04a30"; ctx.fillRect(px - 1, py - 2, 3, 1); }
   }
 }
 function fogT(tx, ty) { const ch = W.chunks.get(M.ckey(Math.floor(tx / C), Math.floor(ty / C))); if (!ch) return 1; return ch.fog[(ty - ch.y0) * C + (tx - ch.x0)]; }
 function paintFog(ch, pxa, pya, pxb, pyb) {
-  if (!ch.fc) { if (!ch.fog.some(v => v)) { ch.fogClear = true; return; } ch.fc = document.createElement("canvas"); ch.fc.width = CW; ch.fc.height = CH; }
-  const [X0, Y0] = chunkOrigin(ch); pxa = Math.max(0, pxa); pya = Math.max(0, pya); pxb = Math.min(CW, pxb); pyb = Math.min(CH, pyb);
+  if (!ch.hf) return;
+  if (!ch.fc) { if (!ch.fog.some(v => v)) { ch.fogClear = true; return; } ch.fc = document.createElement("canvas"); ch.fc.width = CW; ch.fc.height = CH + ch.hm; }
+  const Hh = CH + ch.hm, [X0, Y0] = chunkOrigin(ch); pxa = Math.max(0, pxa); pya = Math.max(0, pya); pxb = Math.min(CW, pxb); pyb = Math.min(Hh, pyb);
   const w = pxb - pxa, h = pyb - pya; if (w <= 0 || h <= 0) return;
-  const ctx = ch.fc.getContext("2d"), img = ctx.createImageData(w, h), d = img.data; let any = false;
+  const ctx = ch.fc.getContext("2d"), img = ctx.createImageData(w, h), d = img.data;
   const cache = new Map(), fv = (tx, ty) => { const k = tx * 100003 + ty; let v = cache.get(k); if (v === undefined) { v = fogT(tx, ty); cache.set(k, v); } return v; };
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-    const gx = X0 + pxa + i, gy = Y0 + pya + j, b0 = (gy + .5) / 4, a = (gx + .5) / 8, x = (a + b0) / 2, y = (b0 - a) / 2;
-    if (Math.floor(x / C) !== ch.cx || Math.floor(y / C) !== ch.cy) continue;
+    const q = (pya + j) * CW + pxa + i; if (!ch.hf[q]) continue;
+    const gx = X0 + pxa + i, gy = Y0 + pya + j, pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8;
     const fx = x - .5, fy = y - .5, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
     const f = (fv(ix, iy) * (1 - tx) + fv(ix + 1, iy) * tx) * (1 - ty) + (fv(ix, iy + 1) * (1 - tx) + fv(ix + 1, iy + 1) * tx) * ty + (M.ih(gx * 3, gy * 7) - .5) * .35;
     if (f < .55) continue;
     const po = (((gy & 127) * FP) + (gx & 127)) * 3, o = (j * w + i) * 4, e = f < .68 ? 18 : 0;
-    d[o] = fogPat[po] + e; d[o + 1] = fogPat[po + 1] + e; d[o + 2] = fogPat[po + 2] + e; d[o + 3] = 255; any = true;
+    d[o] = fogPat[po] + e; d[o + 1] = fogPat[po + 1] + e; d[o + 2] = fogPat[po + 2] + e; d[o + 3] = 255;
   }
   ctx.clearRect(pxa, pya, w, h); ctx.putImageData(img, pxa, pya); ch.ovDirty = true;
-  if (!ch.fog.some(v => v)) { // fully explored: drop fog canvas once neighbours are explored too
+  if (!ch.fog.some(v => v)) {
     let n = true; for (let j = -1; j <= 1 && n; j++) for (let i = -1; i <= 1; i++) { const q = W.chunks.get(M.ckey(ch.cx + i, ch.cy + j)); if (!q || q.fog.some(v => v)) { n = false; break; } }
     if (n) { ch.fc = null; ch.fogClear = true; }
   }
 }
-function worldRectPx(x0, y0, x1, y1) { return [Math.floor(sx(x0, y1)) - 2, Math.floor(sy(x0, y0)) - 2, Math.ceil(sx(x1, y0)) + 2, Math.ceil(sy(x1, y1)) + 2]; }
+function worldRectPx(x0, y0, x1, y1) { const hm = Math.max(hR(x0, y0), hR(x1, y1), hR(x0, y1), hR(x1, y0), hR((x0 + x1) / 2, (y0 + y1) / 2)) + 4; return [Math.floor(sx(x0, y1)) - 2, Math.floor(sy(x0, y0) - hm) - 2, Math.ceil(sx(x1, y0)) + 2, Math.ceil(sy(x1, y1)) + 2]; }
 function repaintWorldRect(x0, y0, x1, y1, fogToo) {
   const [ga, gb, gc, gd] = worldRectPx(x0, y0, x1, y1);
   for (let cy = Math.floor(y0 / C); cy <= Math.floor(y1 / C); cy++) for (let cx = Math.floor(x0 / C); cx <= Math.floor(x1 / C); cx++) {
@@ -135,11 +193,11 @@ export function setWorld(nw, old) {
   if (prev && prev !== nw) {
     for (const ch of nw.chunks.values()) {
       const o = prev.chunks.get(ch.k); if (!o || !o.gc) continue;
-      ch.gc = o.gc; ch.fc = o.fc; ch.ov = o.ov; ch.g = o.g; ch.waterPx = o.waterPx; ch.bakedSeason = o.bakedSeason; ch.fogClear = o.fogClear; ch.ovDirty = true;
+      ch.gc = o.gc; ch.fc = o.fc; ch.ov = o.ov; ch.g = o.g; ch.waterPx = o.waterPx; ch.bakedSeason = o.bakedSeason; ch.fogClear = o.fogClear; ch.ovDirty = true; ch.hm = o.hm; ch.hmax = o.hmax; ch.hp = o.hp; ch.hf = o.hf; ch.hz = o.hz;
       // repaint what differs
       for (let k = 0; k < C4 * C4; k++) if (((o.wear[k] / WK * 14) | 0) !== ((ch.wear[k] / WK * 14) | 0)) nw.dirtyGround.push(ch, k);
       let fd = false; for (let k = 0; k < C * C; k++) if (o.fog[k] !== ch.fog[k]) { fd = true; break; }
-      if (fd) { if (!ch.fc && ch.fog.some(v => v)) ch.fogClear = false; paintFog(ch, 0, 0, CW, CH); }
+      if (fd) { if (!ch.fc && ch.fog.some(v => v)) ch.fogClear = false; paintFog(ch, 0, 0, CW, CH + (ch.hm || 0)); }
     }
     const ob = new Map(prev.S.b.map(b => [b.id, b])); for (const b of nw.S.b) { const q = ob.get(b.id); if (!q || q.done !== b.done || q.stage !== b.stage || q.crop !== b.crop || (!b.done && Math.abs((q.prog || 0) - b.prog) > .05)) repaintWorldRect(b.x - .5, b.y - .5, b.x + b.a + .5, b.y + b.b + .5); }
     for (const b of prev.S.b) if (!nw.S.b.find(q => q.id === b.id)) repaintWorldRect(b.x - .5, b.y - .5, b.x + b.a + .5, b.y + b.b + .5);
@@ -156,22 +214,24 @@ function consume() {
   }
 }
 // ---------- overview tiles (1/4 scale) ----------
+let _ovt = null; function ovTmp(w, h) { if (!_ovt || _ovt.width !== w || _ovt.height < h) { _ovt = document.createElement("canvas"); _ovt.width = w; _ovt.height = h + 8; } return _ovt; }
 function buildOverview(ch) {
-  if (!ch.ov) { ch.ov = document.createElement("canvas"); ch.ov.width = CW / 4; ch.ov.height = CH / 4 + OVM; }
+  if (!ch.ov) { ch.ov = document.createElement("canvas"); ch.ov.width = CW / 4; ch.ov.height = Math.ceil((CH + ch.hm) / 4) + OVM; }
   const c = ch.ov.getContext("2d"), [X0, Y0] = chunkOrigin(ch);
   c.clearRect(0, 0, ch.ov.width, ch.ov.height); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
-  if (ch.gc) c.drawImage(ch.gc, 0, OVM, CW / 4, CH / 4);
+  if (ch.gc) c.drawImage(ch.gc, 0, OVM, CW / 4, (CH + ch.hm) / 4);
   const ents = [];
   for (const t of ch.trees) { if (M.hidden(W, t.x, t.y)) continue; const a = t.felled ? null : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y]); }
   for (const r of ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y]);
   ents.sort((a, b) => a[0] - b[0]);
-  for (const [, s, x, y] of ents) { const px = (sx(x, y) - X0 - s.ax) / 4, py = (sy(x, y) - Y0 - s.ay) / 4 + OVM; c.drawImage(s.canvas, px, py, s.w / 4, s.h / 4); }
-  for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; c.drawImage(s.canvas, (sx(b.x, b.y) - X0 - s.ax) / 4, (sy(b.x, b.y) - Y0 - s.ay) / 4 + OVM, s.w / 4, s.h / 4); }
-  if (ch.fc) c.drawImage(ch.fc, 0, OVM, CW / 4, CH / 4);
+  for (const [, s, x, y] of ents) { const px = (sx(x, y) - X0 - s.ax) / 4, py = (gyH(x, y) - Y0 - s.ay) / 4 + OVM; c.drawImage(s.canvas, px, py, s.w / 4, s.h / 4); }
+  for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; c.drawImage(s.canvas, (sx(b.x, b.y) - X0 - s.ax) / 4, (sy(b.x, b.y) - bH(b) - Y0 - s.ay) / 4 + OVM, s.w / 4, s.h / 4); }
+  if (ch.fc) { const t = ovTmp(ch.ov.width, ch.ov.height), tc = t.getContext("2d"); tc.clearRect(0, 0, t.width, t.height); tc.imageSmoothingEnabled = true; tc.drawImage(ch.fc, 0, OVM, CW / 4, (CH + ch.hm) / 4); tc.globalCompositeOperation = "source-atop"; tc.fillStyle = "rgb(31,39,42)"; tc.fillRect(0, 0, t.width, t.height); tc.globalCompositeOperation = "source-over"; c.drawImage(t, 0, 0); }
   ch.ovDirty = false; ch.ovAt = performance.now();
 }
 // ---------- sprites for things ----------
 function treeSprite(t) { const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
+const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
 function bSprite(b) { const B = SP.bld; if (B[b.type]) return B[b.type]; if (b.type === "camp") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
 export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, sel: 0, hourOverride: null, seasonOverride: null, weatherOverride: null };
@@ -198,7 +258,7 @@ export function frame(now, rdt) {
   const VWa = Vw / k, VHa = Vh / k;
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
   const pat = fogPattern(ctx); pat.setTransform(new DOMMatrix([k, 0, 0, k, -vx0 * k % (FP * k), -vy0 * k % (FP * k)]));
-  ctx.fillStyle = pat; ctx.fillRect(0, 0, Vw, Vh);
+  ctx.fillStyle = over ? "rgb(31,39,42)" : pat; ctx.fillRect(0, 0, Vw, Vh);
   ctx.setTransform(k, 0, 0, k, 0, 0); ctx.imageSmoothingEnabled = k < 1; ctx.imageSmoothingQuality = "high";
   // visible tile range
   const inv = (gx, gy) => { const a = gx / 8, b = gy / 4; return [(a + b) / 2, (b - a) / 2]; };
@@ -207,7 +267,7 @@ export function frame(now, rdt) {
   const vis = [];
   for (let cy = Math.floor(ty0 / C); cy <= Math.floor(ty1 / C); cy++) for (let cx = Math.floor(tx0 / C); cx <= Math.floor(tx1 / C); cx++) {
     const ch = W.chunks.get(M.ckey(cx, cy)); if (!ch) continue; const [X0, Y0] = chunkOrigin(ch);
-    if (X0 - vx0 > VWa || Y0 - vy0 > VHa + 40 || X0 + CW - vx0 < 0 || Y0 + CH - vy0 < -OVM * 4) continue; vis.push(ch);
+    chunkMargin(ch); if (X0 - vx0 > VWa || Y0 - vy0 > VHa + 40 || X0 + CW - vx0 < 0 || Y0 + CH + ch.hm - vy0 < -OVM * 4) continue; vis.push(ch);
   }
   let baked = 0;
   for (const ch of vis) if (ch.bakedSeason !== season && baked < (over ? 6 : 2)) { bake(ch); baked++; }
@@ -216,8 +276,8 @@ export function frame(now, rdt) {
     let ob = 0;
     for (const ch of vis) { if (!ch.gc || ch.bakedSeason !== season) continue; if ((!ch.ov || ch.ovDirty) && ob < 4 && (!ch.ov || performance.now() - (ch.ovAt || 0) > 1500)) { buildOverview(ch); ob++; } }
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
-    for (const ch of vis) if (ch.ov) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.ov, X0 - vx0, Y0 - vy0 - OVM * 4, CW, CH + OVM * 4); }
-    ctx.fillStyle = "#f4e6c0"; for (const p of S.people) if (!p.asleep) ctx.fillRect(Math.round(sx(p.x, p.y) - vx0 - 2), Math.round(sy(p.x, p.y) - vy0 - 6), 4, 6);
+    for (const ch of vis) if (ch.ov && !ch.fog.every(v => v)) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.ov, X0 - vx0, Y0 - vy0 - OVM * 4, CW, ch.ov.height * 4); }
+    ctx.fillStyle = "#f4e6c0"; for (const p of S.people) if (!p.asleep) ctx.fillRect(Math.round(sx(p.x, p.y) - vx0 - 2), Math.round(gyH(p.x, p.y) - vy0 - 6), 4, 6);
   } else {
     for (const ch of vis) if (ch.gc) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.gc, X0 - vx0, Y0 - vy0); }
     if (k >= 1) { ctx.fillStyle = rgb(PAL[season].water[2]); const ph = Math.floor(T * 2); for (const ch of vis) { const wp = ch.waterPx; if (!wp || !wp.length) continue; const [X0, Y0] = chunkOrigin(ch), n = wp.length / 2; for (let i = 0; i < Math.min(12, n / 30); i++) { const q = ((ph * 7919 + i * 104729 + ch.cx * 31) % n) * 2; ctx.fillRect(X0 + wp[q] - vx0, Y0 + wp[q + 1] - vy0, 2, 1); } } }
@@ -238,8 +298,8 @@ export function frame(now, rdt) {
   drawWeather(wk, rdt); ctx.drawImage(vig, 0, 0);
   if (Z >= 2 && !over) drawTexts(rdt);
 }
-function spr(list, s, wx, wy, depth, info, VWa, VHa) {
-  if (!s) return; const x = sx(wx, wy) - s.ax - vx0, y = sy(wx, wy) - s.ay - vy0;
+function spr(list, s, wx, wy, depth, info, VWa, VHa, zz) {
+  if (!s) return; const x = sx(wx, wy) - s.ax - vx0, y = sy(wx, wy) - (zz ?? hR(wx, wy)) - s.ay - vy0;
   if (x > VWa || y > VHa || x + s.w < 0 || y + s.h < 0) return;
   list.push({ depth, draw: () => ctx.drawImage(s.canvas, x, y), box: info ? [x, y, x + s.w, y + s.h, info] : null });
 }
@@ -247,7 +307,7 @@ function drawEntities(vis, hour, VWa, VHa) {
   const S = W.S, ents = [], P = PAL[season], hv = view.hover;
   for (const ch of vis) {
     for (const t of ch.trees) {
-      const x0 = sx(t.x, t.y) - vx0, y0 = sy(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
+      const x0 = sx(t.x, t.y) - vx0, y0 = gyH(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
       if (t.felled) { if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: "A young tree will grow here again." }, VWa, VHa); continue; }
       const a = treeSprite(t), x = x0 - a.ax, y = y0 - a.ay, near = hv && Math.abs(hv.vx - x0) < 12 && hv.vy > y && hv.vy < y0 + 2;
       ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: t.t === "oak" ? "Oak" : t.t === "birch" ? "Birch" : "Spruce", d: t.logs + " loads of wood left." }] : null });
@@ -260,13 +320,13 @@ function drawEntities(vis, hour, VWa, VHa) {
     const T = M.TYPES[b.type], info = { t: T.name + (b.done ? "" : " (being built)"), d: b.done ? T.d : "Building site: " + Math.round(b.prog * 100) + "% done." + (b.by === "mayor" ? " Ordered by the Mayor." : " The villagers' own idea."), b: b.id };
     if (b.type === "field") {
       if (b.done) { info.d = ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe! Ready to harvest."][b.stage] + " Crop: " + M.CROPS[b.crop].name + (b.auto ? " (villagers' choice)." : " (Mayor's choice)."); if (b.stage >= 1) spr(ents, SP.bld.scarecrow, b.x + .7, b.y + .7, b.x + b.y + 1.4, null, VWa, VHa); }
-      const [x0, y0] = [sx(b.x + b.a / 2, b.y + b.b / 2) - vx0, sy(b.x + b.a / 2, b.y + b.b / 2) - vy0]; hitsPush([x0 - 24, y0 - 10, x0 + 24, y0 + 10, info]); continue;
+      const [x0, y0] = [sx(b.x + b.a / 2, b.y + b.b / 2) - vx0, gyH(b.x + b.a / 2, b.y + b.b / 2) - vy0]; hitsPush([x0 - 24, y0 - 10, x0 + 24, y0 + 10, info]); continue;
     }
     if (b.type === "camp") {
       spr(ents, SP.bld.tent, b.x + .2, b.y - .3, b.x + b.y + 2.6, info, VWa, VHa);
-      const f = { x: b.x + 1.6, y: b.y + 2.3 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(sy(f.x, f.y) - vy0);
+      const f = { x: b.x + 1.6, y: b.y + 2.3 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(gyH(f.x, f.y) - vy0);
       ents.push({ depth: f.x + f.y, draw: () => drawFire(fx, fy, hour), box: [fx - 7, fy - 10, fx + 7, fy + 4, { t: "Firepit", d: "The heart of the village. People gather here at night." }] });
-      if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: sy(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 });
+      if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: gyH(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 });
       const st = { x: b.x - .7, y: b.y + 2.4 }, inf = { t: "Stockpile", d: "Wood " + R0.wood + " · Stone " + R0.stone + " · Food " + R0.food };
       if (R0.wood > 0) spr(ents, SP.wood[tier(R0.wood)], st.x, st.y, st.x + st.y, inf, VWa, VHa);
       if (R0.stone > 0) spr(ents, SP.stone[tier(R0.stone)], st.x + 1.2, st.y + .9, st.x + st.y + 2.1, inf, VWa, VHa);
@@ -274,7 +334,7 @@ function drawEntities(vis, hour, VWa, VHa) {
       continue;
     }
     const s = bSprite(b); if (!s) continue;
-    const ox = b.type === "well" ? -.2 : 0, X = sx(b.x + ox, b.y + ox) - s.ax - vx0, Y = sy(b.x + ox, b.y + ox) - s.ay - vy0;
+    const ox = b.type === "well" ? -.2 : 0, X = sx(b.x + ox, b.y + ox) - s.ax - vx0, Y = sy(b.x + ox, b.y + ox) - bH(b) - s.ay - vy0;
     if (X > VWa || Y > VHa || X + s.w < 0 || Y + s.h < 0) continue;
     const depth = b.x + b.a + b.y + b.b - .5;
     if (b.done) {
@@ -285,18 +345,19 @@ function drawEntities(vis, hour, VWa, VHa) {
       ents.push({ depth, draw: () => { ctx.drawImage(s.canvas, 0, cut, s.w, s.h - cut, X, Y + cut, s.w, s.h - cut); scaffold(b); }, box: [X, Y, X + s.w, Y + s.h, info] });
     }
     const prop = { wcut: [SP.wood[1], 2.5, .7], forage: [SP.food[1], 2.4, 1.2], fisher: [SP.bld.rack, 2.6, .9], quarry: [SP.stone[2], 2.5, .9], store: [SP.wood[tier(R0.wood)], 3.4, 1.4] }[b.type];
-    if (prop && b.done) spr(ents, prop[0], b.x + prop[1], b.y + prop[2], b.x + prop[1] + b.y + prop[2], info, VWa, VHa);
+    if (prop && b.done) spr(ents, prop[0], b.x + prop[1], b.y + prop[2], b.x + prop[1] + b.y + prop[2], info, VWa, VHa, bH(b));
   }
   // wagon + ox
   const wg = S.wagon, ws = wg.alongY ? SP.wagonM : SP.wagon;
   spr(ents, ws, wg.alongY ? wg.x - .65 : wg.x - 1.2, wg.alongY ? wg.y - 1.2 : wg.y - .65, wg.x + wg.y + .8, { t: "Wagon", d: S.phase === "choose" ? "Everything the settlers own. Waiting for the Mayor's decision." : "It carried the first settlers and all their tools." }, VWa, VHa);
-  { const o = S.ox, x = Math.round(sx(o.x, o.y) - vx0), y = Math.round(sy(o.x, o.y) - vy0), fl = S.phase === "travel" ? (wg.hx - wg.hy >= 0 ? 1 : -1) : 1, fr = S.phase === "travel" ? Math.floor(T * 5) % 2 : 0; ents.push({ depth: o.x + o.y, draw: () => drawOx(x, y, fl, fr), box: [x - 5, y - 7, x + 6, y + 1, { t: "Ox", d: "Pulled the wagon all the way here. Now it grazes." }] }); }
+  { const o = S.ox, x = Math.round(sx(o.x, o.y) - vx0), y = Math.round(gyH(o.x, o.y) - vy0), fl = S.phase === "travel" ? (wg.hx - wg.hy >= 0 ? 1 : -1) : 1, fr = S.phase === "travel" ? Math.floor(T * 5) % 2 : 0; ents.push({ depth: o.x + o.y, draw: () => drawOx(x, y, fl, fr), box: [x - 5, y - 7, x + 6, y + 1, { t: "Ox", d: "Pulled the wagon all the way here. Now it grazes." }] }); }
   for (const p of S.people) {
-    if (p.asleep) continue; const x = Math.round(sx(p.x, p.y) - vx0), y = Math.round(sy(p.x, p.y) - vy0); if (x < -6 || x > VWa + 6 || y < -4 || y > VHa + 10) continue;
+    if (p.asleep) continue; const x = Math.round(sx(p.x, p.y) - vx0), y = Math.round(gyH(p.x, p.y) - vy0); if (x < -6 || x > VWa + 6 || y < -4 || y > VHa + 10) continue;
     if (M.hidden(W, p.x, p.y)) continue;
     const fr = p.moving ? Math.floor(T * 6 + p.id) % 2 : 0;
     ents.push({ depth: p.x + p.y + .2, draw: () => drawPerson(x, y, p, fr), box: [x - 3, y - 9, x + 4, y + 1, { t: p.name, d: (p.act || "") + ". " + p.trait[0].toUpperCase() + p.trait.slice(1) + "." }], p });
   }
+  const dg = S.dog; if (dg && !M.hidden(W, dg.x, dg.y)) { const x = Math.round(sx(dg.x, dg.y) - vx0), y = Math.round(gyH(dg.x, dg.y) - vy0); ents.push({ depth: dg.x + dg.y + .15, draw: () => drawDog(x, y, dg), box: [x - 4, y - 5, x + 4, y + 1, { t: dg.name, d: dg.sleep ? "Sleeping by the camp. Twitching paws, chasing dream rabbits." : "The village dog. Follows " + ((S.people.find(p => p.id === dg.owner) || {}).name || "everyone") + " everywhere." }] }); }
   ents.sort((a, b) => a.depth - b.depth);
   for (const e of ents) { e.draw(); if (e.box) hitsPush(e.box); }
   textAnchors = ents.filter(e => e.p).map(e => [e.p, e.box]);
@@ -306,8 +367,9 @@ function hitsPush(b) { hits.push(b); }
 function scaffold(b) {
   ctx.fillStyle = "#8a6038";
   const pts = [[b.x, b.y + b.b], [b.x + b.a, b.y + b.b], [b.x + b.a, b.y], [b.x, b.y]];
-  for (const [x, y] of pts) { const X = Math.round(sx(x, y) - vx0), Y = Math.round(sy(x, y) - vy0); ctx.fillRect(X, Y - 16, 1, 16); }
-  for (const h of [6, 12]) for (let i = 0; i < 3; i++) { const [x0, y0] = pts[i], [x1, y1] = pts[i + 1]; const A = [sx(x0, y0) - vx0, sy(x0, y0) - vy0 - h], B = [sx(x1, y1) - vx0, sy(x1, y1) - vy0 - h], L = Math.max(Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1])); for (let s = 0; s <= L; s++) ctx.fillRect(Math.round(A[0] + (B[0] - A[0]) * s / L), Math.round(A[1] + (B[1] - A[1]) * s / L), 1, 1); }
+  const z = bH(b);
+  for (const [x, y] of pts) { const X = Math.round(sx(x, y) - vx0), Y = Math.round(sy(x, y) - z - vy0); ctx.fillRect(X, Y - 16, 1, 16); }
+  for (const h of [6, 12]) for (let i = 0; i < 3; i++) { const [x0, y0] = pts[i], [x1, y1] = pts[i + 1]; const A = [sx(x0, y0) - vx0, sy(x0, y0) - z - vy0 - h], B = [sx(x1, y1) - vx0, sy(x1, y1) - z - vy0 - h], L = Math.max(Math.abs(B[0] - A[0]), Math.abs(B[1] - A[1])); for (let s = 0; s <= L; s++) ctx.fillRect(Math.round(A[0] + (B[0] - A[0]) * s / L), Math.round(A[1] + (B[1] - A[1]) * s / L), 1, 1); }
 }
 function drawPerson(x, y, p, fr) {
   const cl = LOOK.cloth[p.look[0]], hair = LOOK.hair[p.look[1]], skin = LOOK.skin[p.look[2]];
@@ -323,6 +385,16 @@ function drawPerson(x, y, p, fr) {
     else if (p.job === "berries" || p.job === "harvest" || p.job === "sow") px(ctx, x + 2, y - 3 + sw, 2, 2, "#8a5a30");
   }
   if (p.carry) { const t = p.carry.type; px(ctx, x - 2, y - 8 + bob, 4, 2, t === "wood" ? "#9a6a3a" : t === "stone" ? "#9a9890" : "#b03a30"); px(ctx, x - 2, y - 8 + bob, 4, 1, t === "wood" ? "#c89a60" : t === "stone" ? "#c8c6c0" : "#7050a0"); }
+}
+function drawDog(x, y, d) {
+  px(ctx, x - 3, y, 7, 1, "#000", .2);
+  const f = d.fx || 1, body = "#a0683a", dark = "#6e4426", fr = d.moving ? Math.floor(T * 10) % 2 : 0;
+  if (d.sleep) { px(ctx, x - 3, y - 2, 6, 2, body); px(ctx, f > 0 ? x + 2 : x - 4, y - 3, 2, 2, body); px(ctx, f > 0 ? x + 3 : x - 4, y - 3, 1, 1, dark); return; }
+  px(ctx, x - 3, y - 4, 6, 2, body); px(ctx, x - 3, y - 4, 6, 1, "#b8804c");
+  px(ctx, x - 3 + (fr ? 1 : 0), y - 2, 1, 2, dark); px(ctx, x + 1 + (fr ? 0 : 1), y - 2, 1, 2, dark);
+  const hx = f > 0 ? x + 3 : x - 5; px(ctx, hx, y - 6, 2, 2, body); px(ctx, f > 0 ? hx + 1 : hx, y - 7, 1, 1, dark); px(ctx, f > 0 ? hx + 2 : hx - 1, y - 5, 1, 1, "#2a1a10");
+  const wag = Math.floor(T * (d.moving ? 12 : 5)) % 2, tx = f > 0 ? x - 4 : x + 3; px(ctx, tx, y - 5 - wag, 1, 2, dark);
+  if (d.mode === "sniff" && !d.moving) px(ctx, f > 0 ? hx + 2 : hx - 1, y - 4, 1, 1, "#2a1a10");
 }
 function drawOx(x, y, fl, fr) {
   px(ctx, x - 5, y, 11, 1, "#000", .22); const b = "#7a5034", d = "#5a3a24", h = fl > 0 ? x + 4 : x - 6;
@@ -342,12 +414,20 @@ function drawGlow(n, hour) {
   const glow = (x, y, r, a) => { x = (x - vx0) * k; y = (y - vy0) * k; r *= k; if (x < -r || y < -r || x > Vw + r || y > Vh + r) return; const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, "rgba(255,170,70," + a + ")"); g.addColorStop(1, "rgba(255,110,40,0)"); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); };
   for (const b of S.b) {
     if (!b.done) continue;
-    if (b.type === "camp") { const f = { x: b.x + 1.6, y: b.y + 2.3 }; glow(sx(f.x, f.y), sy(f.x, f.y) - 3, 40 * (1 + Math.sin(T * 7) * .06), .55 * n); }
-    else if (b.type === "torch") glow(sx(b.x, b.y) + 0, sy(b.x, b.y) - 14, 22, .5 * n);
-    else if (M.TYPES[b.type].beds && hour > 17 && hour < 23.2 && S.people.some(p => p.home === b.id)) { const s = bSprite(b); if (s && s.wins) for (const w of s.wins) glow(sx(b.x, b.y) - s.ax + w[0], sy(b.x, b.y) - s.ay + w[1], 9, .5 * n); }
+    const z = bH(b);
+    if (b.type === "camp") { const f = { x: b.x + 1.6, y: b.y + 2.3 }; glow(sx(f.x, f.y), gyH(f.x, f.y) - 3, 40 * (1 + Math.sin(T * 7) * .06), .55 * n); if (lit(b, hour)) glow(sx(b.x + 2.8, b.y + 1), sy(b.x + 2.8, b.y + 1) - z - 4, 12, .45 * n); }
+    else if (b.type === "torch") glow(sx(b.x, b.y), sy(b.x, b.y) - z - 14, 22, .5 * n);
+    else if (lit(b, hour)) { const s = bSprite(b); if (s && s.wins) for (const w of s.wins) glow(sx(b.x, b.y) - s.ax + w[0], sy(b.x, b.y) - z - s.ay + w[1], 9, .5 * n); }
   }
   ctx.globalCompositeOperation = "source-over";
-  for (const b of S.b) { if (!b.done || !M.TYPES[b.type].beds || b.type === "camp" || !(hour > 17 && hour < 23.2) || !S.people.some(p => p.home === b.id)) continue; const s = bSprite(b); if (!s) continue; ctx.fillStyle = "rgba(255,214,120," + n + ")"; for (const w of s.wins) ctx.fillRect(Math.round((sx(b.x, b.y) - s.ax + w[0] - vx0) * k) - 1, Math.round((sy(b.x, b.y) - s.ay + w[1] - vy0) * k) - 1, 2, 2); }
+  for (const b of S.b) { if (b.type === "camp" || !lit(b, hour)) continue; const s = bSprite(b); if (!s) continue; const z = bH(b); ctx.fillStyle = "rgba(255,214,120," + n + ")"; for (const w of s.wins) ctx.fillRect(Math.round((sx(b.x, b.y) - s.ax + w[0] - vx0) * k) - 1, Math.round((sy(b.x, b.y) - z - s.ay + w[1] - vy0) * k) - 1, 2, 2); }
+}
+// a home's windows glow when someone is up inside: in the morning one by one as people wake, in the evening until the last one goes to bed
+function lit(b, hour) {
+  if (!b.done || !M.TYPES[b.type].beds) return false;
+  let any = false;
+  for (const p of W.S.people) { if (p.home !== b.id) continue; if (p.state === "morning") return true; if (hour >= 17.5 && hour < M.sleepAt(p) && p.state !== "sleep") any = true; }
+  return any;
 }
 function drawWeather(wk, dt) {
   if (wk !== "rain" && wk !== "snow") return;
@@ -357,7 +437,7 @@ function drawWeather(wk, dt) {
 const SAY = ["Smells like rain.", "Good soil here.", "Listen, an eagle.", "I miss bread.", "Nice view.", "My back hurts.", "Who took my axe?", "Lovely day.", "The Mayor is watching.", "Warm fire tonight?"];
 function drawTexts(dt) {
   ctx.font = "7px ui-monospace,Menlo,Consolas,monospace"; ctx.textBaseline = "top";
-  for (const f of floats) { f.a += dt; ctx.globalAlpha = Math.max(0, 1 - f.a / 2.2); ctx.fillStyle = f.c; ctx.fillText(f.t, Math.round(sx(f.x, f.y) - vx0 - 8), Math.round(sy(f.x, f.y) - vy0 - 14 - f.a * 6)); } ctx.globalAlpha = 1; floats = floats.filter(f => f.a < 2.2);
+  for (const f of floats) { f.a += dt; ctx.globalAlpha = Math.max(0, 1 - f.a / 2.2); ctx.fillStyle = f.c; ctx.fillText(f.t, Math.round(sx(f.x, f.y) - vx0 - 8), Math.round(gyH(f.x, f.y) - vy0 - 14 - f.a * 6)); } ctx.globalAlpha = 1; floats = floats.filter(f => f.a < 2.2);
   for (const [p, box] of textAnchors) {
     let s = says.get(p.id);
     if (!s && Math.random() < dt * .012 && p.state !== "sleep") { s = { t: SAY[(Math.random() * SAY.length) | 0], ttl: 4 }; says.set(p.id, s); }
@@ -372,21 +452,21 @@ function drawGhost() {
   const g = view.ghost; if (!g) return;
   const col = g.ok ? "#ffd36a" : "#ff6a5a";
   if (g.kind === "settle") {
-    const x = sx(g.x, g.y) - vx0, y = sy(g.x, g.y) - vy0, r = 4.3;
+    const x = sx(g.x, g.y) - vx0, y = gyH(g.x, g.y) - vy0, r = 4.3;
     ctx.globalAlpha = .18; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, r * 11.3, r * 5.66, 0, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1;
     for (let a = 0; a < 6.28; a += .05) { if (Math.floor(a * 8 + T * 2) % 2 === 0) continue; ctx.fillRect(Math.round(x + Math.cos(a) * r * 11.3) - 1, Math.round(y + Math.sin(a) * r * 5.66), 2, 1); }
     px(ctx, x, y - 14, 1, 14, "#5a3a24"); px(ctx, x + 1, y - 14, 5, 3, col); return;
   }
   const T0 = M.TYPES[g.type], x0 = g.x, y0 = g.y, a = T0.a, b = T0.b;
-  const P = [[x0, y0], [x0 + a, y0], [x0 + a, y0 + b], [x0, y0 + b]].map(([x, y]) => [sx(x, y) - vx0, sy(x, y) - vy0]);
+  const P = [[x0, y0], [x0 + a, y0], [x0 + a, y0 + b], [x0, y0 + b]].map(([x, y]) => [sx(x, y) - vx0, gyH(x, y) - vy0]);
   ctx.globalAlpha = .28; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]); for (const q of P) ctx.lineTo(q[0], q[1]); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
   ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
-  const s = bSprite({ type: g.type }); if (s) { ctx.globalAlpha = .55; ctx.drawImage(s.canvas, sx(x0, y0) - s.ax - vx0, sy(x0, y0) - s.ay - vy0); ctx.globalAlpha = 1; }
+  const s = bSprite({ type: g.type }); if (s) { ctx.globalAlpha = .55; ctx.drawImage(s.canvas, sx(x0, y0) - s.ax - vx0, sy(x0, y0) - hR(x0 + a / 2, y0 + b / 2) - s.ay - vy0); ctx.globalAlpha = 1; }
 }
 // ---------- coordinates ----------
 export function toWorld(clientX, clientY) {
   const r = cv.getBoundingClientRect(), cxp = (clientX - r.left) / r.width * Vw, cyp = (clientY - r.top) / r.height * Vh;
-  const ax = cxp / k + vx0, ay = cyp / k + vy0, a = ax / 8, b = ay / 4; return { x: (a + b) / 2, y: (b - a) / 2, vx: ax - vx0, vy: ay - vy0 };
+  const ax = cxp / k + vx0, ay = cyp / k + vy0, r0 = rayHit(Math.floor(ax), Math.floor(ay), 7); return { x: r0.x, y: r0.y, vx: ax - vx0, vy: ay - vy0 };
 }
 export function hitAt(vx, vy) { for (let i = hits.length - 1; i >= 0; i--) { const b = hits[i]; if (vx >= b[0] && vx <= b[2] && vy >= b[1] && vy <= b[3]) return b[4]; } return null; }
 export function artPerCss() { return Vw / k / cv.getBoundingClientRect().width; }

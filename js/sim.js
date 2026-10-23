@@ -16,8 +16,28 @@ export function vn(x, y, s) {
 }
 export function mkRng(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 // ---------- terrain (pure functions of the seed) ----------
-export const lakeV = (x, y) => vn(x + 1000, y, 22) * .65 + vn(x, y + 900, 7) * .35 - Math.max(0, 1 - Math.hypot(x, y) / 24) * .5;
-export const isWater = (x, y) => lakeV(x, y) > .7;
+// Elevation: a big lake / sea lies in one direction from the start, highlands in the other.
+// In the demo world everything is close together; in the full game the scales grow.
+export const SEA = .40;
+let DX = 1, DY = 0;
+export function elev(x, y) {
+  let e = vn(x + 3000, y - 1000, 48) * .5 + vn(x, y, 14) * .3 + vn(x + 77, y + 33, 5) * .2;
+  const d = x * DX + y * DY;
+  e += -Math.max(0, d - 20) * .013 + Math.max(0, -d - 24) * .009;
+  e += Math.max(0, 1 - Math.hypot(x, y) / 18) * .14;
+  return e;
+}
+export const cliffV = (x, y) => vn(x - 500, y + 800, 18);
+// ground height in screen pixels (0 = water level). Cliffy areas get sharp terraces.
+export function heightAt(x, y) {
+  const e = elev(x, y); if (e < SEA) return 0;
+  const sharp = clamp((cliffV(x, y) - .47) / .18, 0, 1);
+  const v = (e - SEA) * 80 + sharp * 5, q = v / 6, fl = Math.floor(q), f = q - fl, w = .2 - .185 * sharp, s = clamp((f - (.5 - w)) / (2 * w), 0, 1);
+  return (fl + s * s * (3 - 2 * s)) * 6;
+}
+export const lakeV = (x, y) => .7 + (SEA - elev(x, y)) * 2;
+export const isWater = (x, y) => elev(x, y) < SEA;
+export const steep = (x0, y0, x1, y1) => Math.abs(heightAt(x1, y1) - heightAt(x0, y0)) > 3.6;
 export const fdV = (x, y) => vn(x + 200, y + 200, 11) * .65 + vn(x, y + 77, 4) * .35 - Math.max(0, 1 - Math.hypot(x, y) / 10) * .45;
 export const lfV = (x, y) => vn(x + 40, y + 40, 5) * .6 + vn(x, y, 1.7) * .4;
 export const rockV = (x, y) => vn(x + 500, y - 300, 10) * .75 + vn(x, y, 3) * .25 - Math.max(0, 1 - Math.hypot(x, y) / 12) * .5;
@@ -53,12 +73,13 @@ export function createWorld(seed, t0) {
   const W = wrap(S);
   const R = mkRng(seed + 7);
   // the old cart track the wagon came along
-  const ang = Math.PI * (.75 + R() * .5), ex = Math.cos(ang) * 46, ey = Math.sin(ang) * 46;
+  const sa = mkRng(seed + 11)() * Math.PI * 2, ang = sa + Math.PI / 2 * (R() < .5 ? 1 : -1) + (R() - .5) * .5, ex = Math.cos(ang) * 46, ey = Math.sin(ang) * 46;
   S.entry = { x: ex, y: ey };
   S.wagon = { x: 0, y: 0, path: null, d: 0, alongY: Math.abs(ey) > Math.abs(ex), hx: -ex, hy: -ey };
   S.ox = { x: 1.8, y: 0 };
   for (let i = 0; i < 5; i++) S.people.push(newPerson(W, Math.cos(i * 1.3) * 1.6 - 1.2, Math.sin(i * 1.3) * 1.1 + 1.4));
   for (const p of S.people) { p.state = "wait"; p.act = "Waiting by the wagon"; }
+  S.dog = { x: -1.5, y: 2.2, tx: -1.5, ty: 2.2, t: 1, owner: S.people[0].id, name: "Dunčo", fx: 1 };
   reveal(W, 0, 0, 14);
   for (const q of W.trail) if (Math.hypot(q.x, q.y) < 40) reveal(W, q.x, q.y, 4);
   addLog(W, "A wagon with five settlers has arrived in the valley.");
@@ -74,12 +95,14 @@ function newPerson(W, x, y) {
 }
 export function wrap(S) {
   SX = (mkRng(S.seed)() * 20000) | 0; SY = (mkRng(S.seed + 1)() * 20000) | 0;
+  const sa = mkRng(S.seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa);
   const W = { S, chunks: new Map(), occ: new Map(), events: [], trail: [], dirtyGround: [], dirtyFog: [], newChunks: [] };
   // trail from the entry point to the start clearing
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy
   for (const b of S.b) occupy(W, b, true);
+  if (!S.dog && S.people.length) S.dog = { x: S.people[0].x + 1, y: S.people[0].y, tx: S.people[0].x, ty: S.people[0].y, t: 1, owner: S.people[0].id, name: "Dunčo", fx: 1 };
   return W;
 }
 // ---------- chunks ----------
@@ -98,11 +121,12 @@ function genChunk(W, cx, cy) {
     const jx = x + (ih(Math.floor(x * 9) + SX, Math.floor(y * 7)) - .5) * .7, jy = y + (ih(Math.floor(x * 5), Math.floor(y * 3) + SY) - .5) * .7;
     if (jx < ch.x0 || jy < ch.y0 || jx >= ch.x0 + C || jy >= ch.y0 + C) continue;
     if (lakeV(jx, jy) > .62 || nearTrail(jx, jy, 1.2) || Math.hypot(jx, jy) < 4.5) continue;
-    const r = ih(Math.floor(jx * 13) + SX, Math.floor(jy * 11) + SY), v = ih(Math.floor(x * 3) + SY, Math.floor(y * 3)), fd = fdV(jx, jy), rk = rockV(jx, jy);
+    const r = ih(Math.floor(jx * 13) + SX, Math.floor(jy * 11) + SY), v = ih(Math.floor(x * 3) + SY, Math.floor(y * 3)), hz = heightAt(jx, jy), fd = fdV(jx, jy) - (hz > 30 ? (hz - 30) * .03 : 0), rk = rockV(jx, jy) + (hz > 24 ? (hz - 24) * .006 : 0);
+    if (steep(jx - .3, jy - .3, jx + .3, jy + .3) || steep(jx + .3, jy - .3, jx - .3, jy + .3)) continue;
     if (rk > .72) { if (r < .14) ch.rocks.push({ x: jx, y: jy, v, big: r < .08, stone: r < .08 ? 6 : 2 }); continue; }
     if (fd > .62 && r < .55) ch.trees.push({ x: jx, y: jy, t: r < .34 ? "spruce" : "spruceS", s: .8 + ih(Math.floor(x), Math.floor(y)) * .6, v, logs: 3, felled: false, regrow: 0, cleared: false });
-    else if (fd > .52 && r < .1) ch.trees.push({ x: jx, y: jy, t: "oak", s: .9 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
-    else if (fd < .52 && r < .014) ch.trees.push({ x: jx, y: jy, t: r < .007 ? "birch" : "oak", s: .8 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
+    else if (fd > .52 && r < .1 && hz < 26) ch.trees.push({ x: jx, y: jy, t: "oak", s: .9 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
+    else if (fd < .52 && r < .014 && hz < 26) ch.trees.push({ x: jx, y: jy, t: r < .007 ? "birch" : "oak", s: .8 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
     else if (r > .994) ch.rocks.push({ x: jx, y: jy, v, big: false, stone: 2 });
     else if (r > .972 && fd > .38 && fd < .75) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0 });
   }
@@ -166,6 +190,7 @@ export function canPlace(W, type, x, y, mayor) {
   for (let j = y; j < y + T.b; j++) for (let i = x; i < x + T.a; i++) {
     if (hidden(W, i + .5, j + .5)) return "That land is still unexplored.";
     if (isWater(i + .5, j + .5) || lakeV(i + .5, j + .5) > .66) return "Too wet to build here.";
+    if (steep(i, j, i + 1, j) || steep(i, j, i, j + 1) || steep(i, j, i + 1, j + 1)) return "Too steep to build here.";
     const ch = chunkAt(W, i, j, false); if (ch && ch.rocks.some(r => r.stone > 0 && r.x >= i && r.x < i + 1 && r.y >= j && r.y < j + 1)) return "Rocks are in the way.";
   }
   if (T.water) { let ok = false; for (let j = y - 2; j < y + T.b + 2 && !ok; j++) for (let i = x - 2; i < x + T.a + 2; i++) if (isWater(i + .5, j + .5)) { ok = true; break; } if (!ok) return "It must stand right by the water."; }
@@ -230,8 +255,13 @@ function deref(W, r) { if (!r) return null; if (r.b) return W.S.b.find(b => b.id
 const busy = new Map(); // runtime reservation counts, rebuilt each step
 const bkey = r => r ? (r.b ? "b" + r.b : r.l + r.c + ":" + r.i) : "";
 // ---------- villager brain ----------
+const frac = v => v - Math.floor(v);
+export const wakeAt = p => 5 + frac(p.id * .618) * 1.4 - (p.trait === "early riser" ? .5 : 0);
+export const sleepAt = p => Math.min(23.9, 22.4 + frac(p.id * .414) * 1.1 + (p.trait === "night owl" ? .5 : 0));
+const deepP = (p, h) => h >= sleepAt(p) || h < wakeAt(p);
+const morningP = (p, h) => h >= wakeAt(p) && h < wakeAt(p) + .45;
+const evening = h => h >= 21.5;
 function night(h) { return h >= 21.5 || h < 6; }
-function deep(h) { return h >= 23 || h < 5.5; }
 export function rallyStr(S) { if (!S.rally) return 0; const t = S.rally.t; return t < 60 ? 1 : Math.max(0, 1 - (t - 60) / 60); }
 function assignRoles(W) {
   const S = W.S, n = S.people.length, sites = S.b.filter(b => !b.done).length;
@@ -300,10 +330,12 @@ function pickJob(W, p, H) {
 function ckeyOf(o) { return o._k || ""; }
 function think(W, p, H) {
   const S = W.S, cm = camp(W);
-  if (night(H) && p.state !== "toStore" && p.state !== "deliver") {
+  if (p.state === "sleep" && morningP(p, H)) { p.state = "morning"; p.act = "Waking up at home"; return; }
+  if (p.state === "morning") { if (morningP(p, H)) return; p.state = "idle"; p.asleep = false; p.t = .3; }
+  if ((deepP(p, H) || evening(H)) && p.state !== "toStore" && p.state !== "deliver") {
     p.obj = null;
     const hb = S.b.find(b => b.id === p.home) || cm, hc = hb ? doorOf(hb) : { x: 0, y: 0 };
-    if (deep(H)) { if (p.state !== "bed" && p.state !== "sleep") { p.state = "bed"; p.tx = hc.x; p.ty = hc.y; p.act = "Going home to sleep"; } return; }
+    if (deepP(p, H)) { if (p.state !== "bed" && p.state !== "sleep") { p.state = "bed"; p.tx = hc.x; p.ty = hc.y; p.act = "Going home to sleep"; } return; }
     if (p.state !== "fire" && p.state !== "sit") { const f = cm ? center(cm) : { x: 0, y: 0 }, a = (p.id % 8) / 8 * 6.28 + .4; p.state = "fire"; p.tx = f.x + 2.2 + Math.cos(a) * 1.4; p.ty = f.y + 2.4 + Math.sin(a) * 1.1; p.act = "Going to the fire"; }
     return;
   }
@@ -323,7 +355,7 @@ function walk(W, p, spd) {
     p.steerT = .5; const base = Math.atan2(dy, dx); let best = -1e9, ba = base;
     for (const off of [-.9, -.45, 0, .45, .9]) {
       const a = base + off, qx = p.x + Math.cos(a) * .9, qy = p.y + Math.sin(a) * .9;
-      let sc = Math.cos(off) + (d > 2 ? Math.min(1, wearAt(W, qx, qy)) * .85 : 0); if (isWater(qx, qy)) sc -= 10;
+      let sc = Math.cos(off) + (d > 2 ? Math.min(1, wearAt(W, qx, qy)) * .85 : 0); if (isWater(qx, qy) || steep(p.x, p.y, qx, qy)) sc -= 10;
       const o = occAt(W, qx, qy); if (o && !TYPES[o.type].field && d > 2) sc -= 2;
       if (sc > best) { best = sc; ba = a; }
     }
@@ -351,7 +383,7 @@ function updatePerson(W, p, H) {
         p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting" }[p.job];
         if (p.job === "rest") p.sit = p.benchSit || rnd(W) < .3;
       }
-      if (night(H)) think(W, p, H);
+      if (evening(H) || deepP(p, H)) think(W, p, H);
       break;
     }
     case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && !s.done) { s.prog += DT / TYPES[s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) finishBuilding(W, s); } else p.t = 0; }
@@ -362,8 +394,10 @@ function updatePerson(W, p, H) {
       p.carry = null; p.state = "idle"; p.t = .6 + rnd(W) * 1.5 * (1 - rallyStr(S)); p.act = "Back home";
       if (S.res.wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
     } break;
-    case "fire": case "bed": if (walk(W, p, spd)) { if (p.state === "fire") { p.state = "sit"; p.sit = true; p.act = "Sitting by the fire"; } else { p.state = "sleep"; p.asleep = true; p.act = "Sleeping"; } } if (!night(H)) think(W, p, H); break;
-    case "sit": case "sleep": if (!night(H) || (p.state === "sit" && deep(H))) think(W, p, H); break;
+    case "fire": case "bed": if (walk(W, p, spd)) { if (p.state === "fire") { p.state = "sit"; p.sit = true; p.act = "Sitting by the fire"; } else { p.state = "sleep"; p.asleep = true; p.act = "Sleeping"; } } if (!evening(H) && !deepP(p, H)) think(W, p, H); else if (p.state === "fire" && deepP(p, H)) think(W, p, H); break;
+    case "sit": if (!evening(H) || deepP(p, H)) think(W, p, H); break;
+    case "sleep": if (!deepP(p, H)) think(W, p, H); break;
+    case "morning": think(W, p, H); break;
   }
   if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
 }
@@ -406,22 +440,24 @@ function plan(W) {
   const c = center(cm), n = S.people.length, has = t => S.b.some(b => b.type === t), cnt = t => S.b.filter(b => b.type === t).length;
   if (S.b.filter(b => !b.done && b.by === "ai").length >= 1) return;
   const afford = t => { const k = TYPES[t].cost; return (S.res.wood >= (k.wood || 0) * .6) && (S.res.stone >= (k.stone || 0) * .6); };
-  const free = bedsTotal(W) - n;
-  let want = null, anchor = c, r0 = 4, r1 = 14;
-  if (free <= 1) { want = S.ms.harvest && S.res.stone >= 3 ? "hut" : "pit"; r0 = 5; r1 = 16; }
-  else if (!has("field") && n >= 5) { want = "field"; r0 = 6; r1 = 16; }
-  else if (!has("wcut")) { want = "wcut"; const t = pickNear(W, c.x, c.y, 26, "trees", o => !o.felled, 1); if (t) { anchor = t.o; r0 = 2; r1 = 8; } }
-  else if (!has("forage") && n >= 6) { want = "forage"; const t = pickNear(W, c.x, c.y, 26, "bushes", o => !o.gone, 1); if (t) { anchor = t.o; r0 = 2; r1 = 8; } else want = null; }
-  if (!want && !has("fisher") && n >= 6) { const t = pickNear(W, c.x, c.y, 30, "shore", () => true, 1); if (t) { want = "fisher"; anchor = t.o; r0 = 1; r1 = 6; } }
-  if (!want && n >= 7 && !has("store")) { want = "store"; r0 = 7; r1 = 16; }
-  if (!want && S.ms.pop7 && !has("quarry")) { const t = pickNear(W, c.x, c.y, 34, "rocks", o => o.stone > 0, 1); if (t) { want = "quarry"; anchor = t.o; r0 = 2; r1 = 7; } }
-  if (!want && S.ms.pop10 && !has("well")) { want = "well"; r0 = 3; r1 = 8; }
-  if (!want && cnt("field") * 5 < n - 2) { want = "field"; r0 = 6; r1 = 22; }
-  if (!want || !afford(want)) return;
-  const site = findSite(W, want, anchor.x, anchor.y, r0, r1);
-  if (!site) return;
-  addBuilding(W, want, site.x, site.y, "ai");
-  addLog(W, "The villagers started building a " + TYPES[want].name + ".");
+  const free = bedsTotal(W) - n, L = [];
+  const near = (list, ok) => { const t = pickNear(W, c.x, c.y, 30, list, ok, 1); return t ? t.o : null; };
+  if (free <= 1) L.push([S.ms.harvest && S.res.stone >= 3 ? "hut" : "pit", c, 5, 18]);
+  if (!has("field") && n >= 5) L.push(["field", c, 6, 18]);
+  if (!has("wcut")) { const t = near("trees", o => !o.felled); if (t) L.push(["wcut", t, 2, 9]); }
+  if (!has("forage") && n >= 6) { const t = near("bushes", o => !o.gone); if (t) L.push(["forage", t, 2, 9]); }
+  if (!has("fisher") && n >= 6) { const t = near("shore", () => true); if (t) L.push(["fisher", t, 1, 7]); }
+  if (n >= 7 && !has("store")) L.push(["store", c, 7, 18]);
+  if (S.ms.pop7 && !has("quarry")) { const t = near("rocks", o => o.stone > 0); if (t) L.push(["quarry", t, 2, 8]); }
+  if (S.ms.pop10 && !has("well")) L.push(["well", c, 3, 9]);
+  if (cnt("field") * 5 < n - 2) L.push(["field", c, 6, 24]);
+  for (const [want, anchor, r0, r1] of L) {
+    if (!afford(want)) continue;
+    const site = findSite(W, want, anchor.x, anchor.y, r0, r1); if (!site) continue;
+    addBuilding(W, want, site.x, site.y, "ai");
+    addLog(W, "The villagers started building a " + TYPES[want].name + ".");
+    return;
+  }
 }
 // ---------- the whole world, one tick ----------
 export function pathAt(S, d) { const P = S.wagon.path; if (!P) return { x: S.wagon.x, y: S.wagon.y }; const i = clamp(Math.floor(d / .25), 0, P.length - 1); return P[i]; }
@@ -476,6 +512,22 @@ export function step(W) {
     if (!S.ms.tarn && S.tick % 40 === 0) for (const ch of W.chunks.values()) if (ch.shore.some(s => !hidden(W, s.x, s.y))) { milestone(W, "tarn", "Found the Water", "Clear water nearby. Fish!"); break; }
   }
   for (const p of S.people) updatePerson(W, p, H);
+  if (S.dog) updateDog(W, H);
+}
+// ---------- Dunčo, the village dog ----------
+function updateDog(W, H) {
+  const S = W.S, d = S.dog, ow = S.people.find(p => p.id === d.owner) || S.people[0]; if (!ow) return;
+  d.moving = false;
+  const step = (spd) => { const dx = d.tx - d.x, dy = d.ty - d.y, L = Math.hypot(dx, dy); if (L < .15) return true; const m = Math.min(L, spd * DT), nx = d.x + dx / L * m, ny = d.y + dy / L * m; if (isWater(nx, ny) || steep(d.x, d.y, nx, ny)) { d.t = 0; d.tx = d.x; d.ty = d.y; return true; } d.x = nx; d.y = ny; d.fx = dx >= -dy ? 1 : -1; d.moving = true; return false; };
+  if (ow.asleep || S.phase !== "settled" && ow.state === "follow") {
+    if (ow.asleep) { const cm = camp(W); const c = cm ? doorOf(cm) : { x: S.wagon.x, y: S.wagon.y + 1 }; d.tx = c.x + .8; d.ty = c.y + .3; d.sleep = step(1.2); return; }
+  }
+  d.sleep = false;
+  const far = Math.hypot(ow.x - d.x, ow.y - d.y);
+  if (far > 3.2) { d.tx = ow.x + .6; d.ty = ow.y + .4; step(far > 8 ? 2.6 : 1.9); d.mode = "run"; return; }
+  d.t -= DT;
+  if (d.t <= 0) { const a = rnd(W) * 6.3, r = .8 + rnd(W) * 1.8; d.tx = ow.x + Math.cos(a) * r; d.ty = ow.y + Math.sin(a) * r; d.t = 1.5 + rnd(W) * 5; d.mode = rnd(W) < .3 ? "sniff" : "trot"; }
+  step(d.mode === "sniff" ? .5 : 1.3);
 }
 function arrive(W) {
   const S = W.S, t = S.target; S.phase = "settled";
@@ -491,12 +543,14 @@ function arrive(W) {
 export function judgeSettle(W, x, y) {
   if (hidden(W, x, y)) return "That land is still unexplored.";
   if (lakeV(x, y) > .6) return "Too close to the water.";
+  for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) if (steep(x + i, y + j, x + i + 1, y + j) || steep(x + i, y + j, x + i, y + j + 1)) return "Too steep. Pick flatter ground.";
   return null;
 }
+const blocked = (x, y, x2, y2) => lakeV(x2, y2) > .62 || steep(x, y, x2, y2);
 function routeTo(a, b) {
   const pts = [a], dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
-  let wet = -1; for (let t = 0; t <= 1; t += .3 / L) if (lakeV(a.x + dx * t, a.y + dy * t) > .62) { wet = t; break; }
-  if (wet >= 0) { const nx = -dy / L, ny = dx / L; for (let o = 3; o < 40; o += 1.5) { let okp = null; for (const sg of [1, -1]) { const w = { x: a.x + dx * .5 + nx * o * sg, y: a.y + dy * .5 + ny * o * sg }; let dry = true; for (const [p, q] of [[a, w], [w, b]]) { const l = Math.hypot(q.x - p.x, q.y - p.y); for (let t = 0; t <= 1; t += .3 / l) if (lakeV(p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t) > .62) { dry = false; break; } } if (dry) { okp = w; break; } } if (okp) { pts.push(okp); break; } } }
+  let wet = -1; for (let t = .3 / L; t <= 1; t += .3 / L) if (blocked(a.x + dx * (t - .3 / L), a.y + dy * (t - .3 / L), a.x + dx * t, a.y + dy * t)) { wet = t; break; }
+  if (wet >= 0) { const nx = -dy / L, ny = dx / L; for (let o = 3; o < 40; o += 1.5) { let okp = null; for (const sg of [1, -1]) { const w = { x: a.x + dx * .5 + nx * o * sg, y: a.y + dy * .5 + ny * o * sg }; let dry = true; for (const [p, q] of [[a, w], [w, b]]) { const l = Math.hypot(q.x - p.x, q.y - p.y); for (let t = .3 / l; t <= 1; t += .3 / l) if (blocked(p.x + (q.x - p.x) * (t - .3 / l), p.y + (q.y - p.y) * (t - .3 / l), p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t)) { dry = false; break; } } if (dry) { okp = w; break; } } if (okp) { pts.push(okp); break; } } }
   pts.push(b);
   const out = []; for (let i = 0; i < pts.length - 1; i++) { const p = pts[i], q = pts[i + 1], l = Math.hypot(q.x - p.x, q.y - p.y); for (let t = 0; t < l; t += .25) out.push({ x: p.x + (q.x - p.x) * t / l, y: p.y + (q.y - p.y) * t / l }); }
   out.push(b); return out;
