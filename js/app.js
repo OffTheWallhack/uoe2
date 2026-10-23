@@ -41,7 +41,7 @@ async function doAct(a) {
   catch (e) { say("Could not reach the server. Try again."); }
   busyAct = false; $("busyact").hidden = true;
 }
-function afterAct(a) { if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
+function afterAct(a) { if (a.k === "trek") { exploreMode = false; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "trekcancel") gridSig = ""; if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
 function say(t) { feed("💬", t); }
 // ---------- sandbox persistence ----------
 function saveSandbox() { if (LIVE || !W) return; try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
@@ -75,6 +75,7 @@ function ui() {
   $("zl").textContent = (view.zoom >= 1 ? view.zoom : view.zoom.toFixed(2).replace(/0$/, "")) + "×";
   if (S.phase === "choose") { if (OWNER) { if (!view.ghost) banner("Your wagon has arrived. Tap a spot to settle."); } else banner("The settlers are waiting for the Mayor to choose a place."); }
   else if (S.phase === "travel") banner("The wagon is on its way…");
+  else if (exploreMode) banner("Explore: where to?", view.ghost ? (view.ghost.ok ? "Tap Send them to confirm." : view.ghost.why) : "Tap a far spot (18+ tiles). Zoom out to see farther.");
   else if (buildType) banner("Place: " + M.TYPES[buildType].name, view.ghost ? (view.ghost.ok ? "Tap Place to confirm, or tap elsewhere." : view.ghost.why) : "Tap where it should stand.");
   else if (S.rally) { const r = M.rallyStr(S), nm = { wood: "Wood", food: "Food", stone: "Stone", build: "Builders" }[S.rally.type]; banner("Rally: all hands on " + nm.toLowerCase() + "!", (r >= 1 ? "Everyone who can is helping." : "The rush is calming down…") + " Tap " + nm + " again to stop."); }
   else banner(null);
@@ -91,14 +92,15 @@ function cbtn(label, ic, on, fn, opt = {}) {
   if (opt.meter != null) { const m = document.createElement("i"); m.className = "mt"; m.style.width = Math.round(opt.meter * 100) + "%"; b.appendChild(m); }
   b.addEventListener("click", e => { e.stopPropagation(); if (!opt.locked) fn(); else toast("", opt.title); }); return b;
 }
-const thumbs = {};
+let exploreMode = false; const thumbs = {};
 function fillGrid() {
   const S = W.S, g = $("grid"), settled = S.phase === "settled";
-  const sig = [gridMode, OWNER, settled, buildType, S.rally && S.rally.type, S.rally && Math.floor(S.rally.t / 6), JSON.stringify(S.ms)].join("|"); if (sig === gridSig) return; gridSig = sig; g.textContent = "";
+  const sig = [gridMode, OWNER, settled, buildType, S.rally && S.rally.type, S.rally && Math.floor(S.rally.t / 6), JSON.stringify(S.ms), !!S.trek, exploreMode].join("|"); if (sig === gridSig) return; gridSig = sig; g.textContent = "";
   if (!OWNER) { const p = document.createElement("p"); p.className = "meta"; p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = "You are watching. Only the Mayor can give orders."; g.appendChild(p); return; }
   if (!settled) { const p = document.createElement("p"); p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = S.phase === "choose" ? "Tap the land to pick where your people settle." : "On the way…"; g.appendChild(p); return; }
   if (gridMode === "main") {
     g.appendChild(cbtn("Build", "build", 0, () => { gridMode = "build"; gridSig = ""; }));
+    g.appendChild(S.trek ? cbtn("Recall", "back", 0, () => doAct({ k: "trekcancel" }), { title: "Call the explorers back home" }) : cbtn("Explore", "globe", 0, () => { exploreMode = true; buildType = null; view.ghost = null; gridSig = ""; showPlace(true); }, { on: exploreMode, title: "Send a few villagers on an expedition to find wonders" }));
     const lbl = document.createElement("div"); lbl.className = "glab"; lbl.textContent = "Rally"; g.appendChild(lbl);
     for (const [t, ic, lab] of [["wood", "axe", "Wood"], ["food", "basket", "Food"], ["stone", "pick", "Stone"], ["build", "flag", "Builders"]]) {
       const on = !!(S.rally && S.rally.type === t);
@@ -154,7 +156,7 @@ let vilSig = "";
 const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts" };
 function fillVillage() {
   const S = W.S, box = $("vilbody"), towns = S.towns || [];
-  const sig = [S.people.length, S.b.length, S.b.filter(b => b.done).length, towns.length, JSON.stringify(S.res), !!S.exp, Math.floor(S.tick / 240)].join("|"); if (sig === vilSig) return; vilSig = sig; box.textContent = "";
+  const sig = [S.people.length, S.b.length, S.b.filter(b => b.done).length, towns.length, JSON.stringify(S.res), !!S.exp, (S.wonders || []).length, S.trek ? S.trek.i : -1, S.rumor ? S.rumor.id : 0, Math.floor(S.tick / 240)].join("|"); if (sig === vilSig) return; vilSig = sig; box.textContent = "";
   if (S.phase !== "settled") { para(box, "The settlers have not picked a place yet."); return; }
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
   const cap = M.capOf(W);
@@ -172,6 +174,12 @@ function fillVillage() {
     row.append(info, go); box.appendChild(row);
   }
   if (S.exp) para(box, "🧭 Pioneers from " + S.exp.from + " are on their way to found " + S.exp.name + ".", "meta");
+  if (S.trek || S.rumor || (S.wonders || []).length) {
+    h("Expeditions & wonders");
+    if (S.trek) { const T = S.trek, names = S.people.filter(q => T.members.includes(q.id)).map(q => q.name).join(", "); para(box, "🧭 " + T.name + " (" + names + "), heading " + T.dir + ". " + (S.people.find(q => q.id === T.members[0]) || {}).act + ".", "meta"); }
+    else if (S.rumor) para(box, "🗣️ Rumor: " + M.WONDERS[S.rumor.k].rumor + ", far to the " + S.rumor.dir + ".", "meta");
+    for (const w of S.wonders || []) { const row = el("div", "vtown"), info = el("div"); info.append(el("b", null, M.WONDERS[w.k].name), el("span", "meta", "Found by " + w.by)); const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(w.x, w.y); $("vilsheet").hidden = true; if (view.zoom < 2) setZoom(3); }); row.append(info, go); box.appendChild(row); }
+  }
   h("Who does what");
   const by = {}; for (const p of S.people) if (!p.pioneer) by[p.role] = (by[p.role] || 0) + 1;
   const ul = el("ul", "vlist"); for (const [k, v] of Object.entries(by).sort((a, b) => b[1] - a[1])) { const li = el("li"); li.append(el("b", null, String(v)), document.createTextNode(" " + (ROLE_NAMES[k] || cap1(k)))); ul.appendChild(li); } box.appendChild(ul);
@@ -195,7 +203,7 @@ function townLabels() {
 }
 function h3(box, t) { const h = document.createElement("h3"); h.textContent = t; box.appendChild(h); }
 function para(box, t, cls) { const p = document.createElement("p"); if (cls) p.className = cls; p.textContent = t; box.appendChild(p); }
-function showPlace(on) { $("placebar").hidden = !on; $("placebtn").disabled = !(view.ghost && view.ghost.ok); }
+function showPlace(on) { $("placebar").hidden = !on; $("placebtn").disabled = !(view.ghost && view.ghost.ok); $("placebtn").textContent = exploreMode ? "Send them" : "Place"; }
 function refreshSel() { selKey = null; }
 // ---------- camera & zoom ----------
 function centerOn(x, y) { view.cam.x = G.sx(x, y); view.cam.y = G.sy(x, y) - 10; }
@@ -231,6 +239,7 @@ addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=
 function tap(cx, cy) {
   const w = G.toWorld(cx, cy), S = W.S;
   if (OWNER && S.phase === "choose") { const why = M.judgeSettle(W, w.x, w.y); view.ghost = { kind: "settle", x: w.x, y: w.y, ok: !why }; banner(why || "A good place. Settle here?", why ? "Pick another spot." : "Trees nearby will be cleared."); $("settlebar").hidden = !!why; return; }
+  if (OWNER && exploreMode) { const c = M.camp(W) || W.S.wagon, d = Math.hypot(w.x - c.x, w.y - c.y), why = d < 18 ? "Too close. Pick a place farther away." : d > 240 ? "Too far for one trip." : W.S.res.food < 24 ? "Not enough food to pack (24 needed)." : M.isWater(w.x, w.y) ? "That is water." : null; view.ghost = { kind: "trek", x: w.x, y: w.y, ok: !why, why }; showPlace(true); return; }
   if (OWNER && buildType) { const sh = M.planShape(W, buildType, w.x, w.y, true), T = M.TYPES[buildType]; view.ghost = { kind: "build", type: buildType, x: sh.x ?? Math.round(w.x), y: sh.y ?? Math.round(w.y), a: sh.a || T.a, b: sh.b || T.b, ok: !sh.err, why: sh.err, tx: w.x, ty: w.y }; showPlace(true); return; }
   const info = G.hitAt(w.vx, w.vy); tip.hidden = true;
   if (info && info.b) { selId = info.b; selInfo = null; } else { selId = 0; selInfo = info; }
@@ -240,8 +249,8 @@ function tap(cx, cy) {
 $("mm").addEventListener("pointerdown", e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(), c = e.currentTarget, u = (e.clientX - r.left) / r.width * c.width, v = (e.clientY - r.top) / r.height * c.height, p = G.minimapToWorld(u, v); if (p) { centerOn(p.x, p.y); mode = null; } });
 $("zin").addEventListener("click", () => zoomStep(1)); $("zout").addEventListener("click", () => zoomStep(-1)); $("zworld").addEventListener("click", fitWorld);
 $("settle").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "settle", x: g.x, y: g.y }); });
-$("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "place", type: g.type, x: g.tx, y: g.ty }); });
-$("placecancel").addEventListener("click", () => { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
+$("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.kind === "trek") { if (g.ok) doAct({ k: "trek", x: g.x, y: g.y }); return; } if (g && g.ok) doAct({ k: "place", type: g.type, x: g.tx, y: g.ty }); });
+$("placecancel").addEventListener("click", () => { exploreMode = false; buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
 $("center").addEventListener("click", () => { const c = M.camp(W); if (c) centerOn(c.x + 1.5, c.y + 1.5); else centerOn(W.S.wagon.x, W.S.wagon.y); if (view.zoom < 2) setZoom(3); });
 const sheet = id => { for (const s of ["logsheet", "menusheet", "vilsheet"]) $(s).hidden = s !== id || !$(s).hidden; };
 $("vilbtn").addEventListener("click", () => { sheet("vilsheet"); vilSig = ""; fillVillage(); });
@@ -310,13 +319,17 @@ function loop(now) {
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
   else {
     acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W);
-    // after fast-forwarding, the test world runs ahead of the real clock (night at noon). At normal speed, bring its clock back.
-    if (speed === 1) { const tn = M.tickNow(W.S, Date.now()); if (W.S.tick > tn + 240) W.S.t0 -= (W.S.tick - tn) * 250; }
+    // The clock always shows the real time of day, at any speed. Fast-forward only makes work go faster, so villagers
+    // keep real day and night: they work in daylight, sleep at night, and a few keep watch.
+    W.S.t0 = Date.now() - W.S.tick * 250;
   }
   for (const e of W.events) {
     if (e.k === "milestone") feed("🏆", e.title, e.txt);
     else if (e.k === "arrive" && e.p) feed("👋", e.p.name + " moved in");
     else if (e.k === "built" && e.b && M.TYPES[e.b.type] && !["torch", "bench", "field"].includes(e.b.type)) feed("🔨", M.TYPES[e.b.upTo || e.b.type].name + " finished");
+    else if (e.k === "wonder") feed("🗿", "Wonder found: " + M.WONDERS[e.w.k].name);
+    else if (e.k === "rumor") feed("🗣️", "Rumor: something far to the " + e.dir);
+    else if (e.k === "trek") feed(e.what === "start" ? "🧭" : "🏠", e.what === "start" ? "Expedition set out " + e.dir : "Expedition is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : ""));
     else if (e.k === "town") feed("🏕️", e.name + " was founded");
     else if (e.k === "gain" && view.zoom >= 2) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
   }

@@ -102,7 +102,7 @@ export function createWorld(seed, t0) {
     v: 1, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
-    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null,
+    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0,
   };
   const W = wrap(S);
   const R = mkRng(seed + 7);
@@ -135,7 +135,7 @@ export function wrap(S) {
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy and the changed land
-  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
+  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
   for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2);
   // settlements (older saves had only the first village)
   if (!S.towns) { S.towns = []; const cm = S.b.find(b => b.type === "camp"); if (cm) S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: 0 }); }
@@ -409,6 +409,10 @@ function pickJob(W, p, H) {
     const others = S.towns.filter(t => t.id !== tw.id), ot = others[(rnd(W) * others.length) | 0], dest = S.b.find(b => b.done && b.town === ot.id && (b.type === "store")) || hallOf(W, ot);
     if (dest) { const d = doorOf(dest); job = "visit"; tx = d.x + (rnd(W) - .5); ty = d.y; p.pack = true; p.visitTo = ot.name; }
   }
+  if (!job && !p.carry && S.wonders.length && rnd(W) < .02) { // pilgrims walk to see a wonder their people found
+    const near = S.wonders.filter(w => Math.hypot(w.x - home.x, w.y - home.y) < 70);
+    if (near.length) { const w = near[(rnd(W) * near.length) | 0]; job = "visit"; tx = w.x + (rnd(W) - .5) * 3; ty = w.y + 2 + rnd(W); p.pack = true; p.visitTo = "the " + WONDERS[w.k].name; }
+  }
   if (!job && role === "build") {
     const sites = S.b.filter(b => isSite(b) && (S.towns.length < 2 || b.town === tw.id || b.type === "bridge" || b.by === "mayor")).sort((a, b) => (a.by === "mayor" ? 0 : 1) - (b.by === "mayor" ? 0 : 1) || a.at - b.at);
     for (const s of sites) {
@@ -461,7 +465,7 @@ function pickJob(W, p, H) {
   }
   if (!job && role === "scout") {
     const a = rnd(W) * Math.PI * 2;
-    for (let d = 4; d < 90; d++) { const x = home.x + Math.cos(a) * d, y = home.y + Math.sin(a) * d; if (isWater(x, y)) continue; if (hidden(W, x, y)) { job = "scout"; tx = x; ty = y; break; } }
+    for (let d = 4; d < 44; d++) { const x = home.x + Math.cos(a) * d, y = home.y + Math.sin(a) * d; if (isWater(x, y)) continue; if (hidden(W, x, y)) { job = "scout"; tx = x; ty = y; break; } }
   }
   if (!job) {
     const benches = S.b.filter(b => b.done && b.type === "bench");
@@ -522,7 +526,7 @@ function walk(W, p, spd) {
   }
   p.hx += (p.ax - p.hx) * .7; p.hy += (p.ay - p.hy) * .7; const hl = Math.hypot(p.hx, p.hy) || 1;
   const inR = isRiver(p.x, p.y), rl = isRoad(p.x, p.y), m = Math.min(d, spd * dt * (inR ? .55 : rl === 2 ? 1.45 : rl ? 1.25 : 1)); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
-  if (inR && W.S.phase === "settled") { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + 1; }
+  if (inR && W.S.phase === "settled" && !p.trek) { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + 1; }
   return false;
 }
 function updatePerson(W, p, H) {
@@ -531,15 +535,16 @@ function updatePerson(W, p, H) {
   const spd = (S.hungry ? .8 : 1.1) * (1 + rallyStr(S) * .25);
   if (S.phase === "choose") { p.t -= DT; if (p.t < 0) { p.t = 3 + rnd(W) * 5; const a = rnd(W) * 6.3; p.tx = S.wagon.x - 1 + Math.cos(a) * 2; p.ty = S.wagon.y + 1.2 + Math.sin(a) * 1.4; } walk(W, p, .6); return; }
   if (S.phase === "travel") { const q = pathAt(S, S.wagon.d - 1.4 - (p.id % 5) * .9); p.tx = q.x + (p.id % 2 ? .7 : -.7); p.ty = q.y + (p.id % 2 ? -.5 : .5); walk(W, p, 1.6); if (p.moving) addWear(W, p.x, p.y, .012 * DT); return; }
-  p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, 3.4); }
+  p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? 7.5 : 3.4); }
   switch (p.state) {
     case "arrive": if (walk(W, p, spd)) { p.state = "idle"; p.t = 1; } break;
     case "idle": case "wait": p.t -= DT; if (p.t <= 0) think(W, p, H); break;
     case "go": {
+      if (p.job === "visit") { p.goT = (p.goT || 0) + DT; if (p.goT > 900) { p.goT = 0; p.pack = false; p.state = "idle"; p.t = 1; break; } }
       const near = !["rest", "scout", "construct", "sow", "harvest", "tend", "visit"].includes(p.job) && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
       if (walk(W, p, spd) || near) {
         if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; if (s && isSite(s) && (s.need[k] || 0) > 0 && S.res[k] > 0) { const n = Math.min(5, s.need[k], S.res[k]); S.res[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
-        p.state = "work"; p.t = WORK[p.job] * (S.hungry ? 1.3 : 1) * (1 - rallyStr(S) * .2);
+        p.goT = 0; p.state = "work"; p.t = WORK[p.job] * (S.hungry ? 1.3 : 1) * (1 - rallyStr(S) * .2);
         p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey", visit: "Chatting in " + (p.visitTo || "the other village"), quarry: "Cutting stone at the quarry" }[p.job];
         if (p.job === "rest") p.sit = p.benchSit || rnd(W) < .3;
       }
@@ -559,6 +564,7 @@ function updatePerson(W, p, H) {
     case "sit": if (!evening(H) || deepP(p, H)) think(W, p, H); break;
     case "sleep": if (!deepP(p, H)) think(W, p, H); break;
     case "morning": think(W, p, H); break;
+    case "trek": trekStep(W, p, H); break;
     case "pioneer": { walk(W, p, spd * 1.1); if (p.revT <= .05) reveal(W, p.x, p.y, 5); const e = S.exp; if (!e) { p.state = "idle"; p.pioneer = 0; break; } if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1.2) { p.state = "camp"; p.act = "Waiting for the others at the new place"; } break; }
     case "camp": if (!S.exp) { p.state = "idle"; } break;
     case "toinn": case "tochurch": if (walk(W, p, spd)) { p.inside = true; p.state = p.state === "toinn" ? "inn" : "church"; p.act = p.state === "inn" ? "At the tavern, singing" : "At the Sunday service"; } else if (p.state === "toinn" && (!evening(H) || deepP(p, H))) think(W, p, H); break;
@@ -664,7 +670,7 @@ function planTown(W, T) {
   const S = W.S, hall = hallOf(W, T); if (!hall) return;
   const c = center(hall), mine = S.b.filter(b => b.town === T.id), ppl = S.people.filter(p => townOf(W, p).id === T.id && !p.pioneer), n = ppl.length;
   const has = t => mine.some(b => b.type === t), cnt = t => mine.filter(b => b.type === t).length, first = T.id === 1;
-  if (n >= 6 && !ppl.some(p => p.watch)) { const w = ppl.find(p => p.trait === "night owl") || ppl[ppl.length - 1]; if (w) { w.watch = 1; addLog(W, w.name + " became the night watchman of " + T.name + ". Someone keeps a lantern lit all night."); } }
+  if (n >= 6 && ppl.filter(p => p.watch).length < 1 + (n >= 16 ? 1 : 0)) { const free = ppl.filter(p => !p.watch && !p.trek && !p.pioneer), w = free.find(p => p.trait === "night owl") || free[free.length - 1]; if (w) { w.watch = 1; addLog(W, w.name + " became the night watchman of " + T.name + ". Someone keeps a lantern lit all night."); } }
   if (mine.some(b => isSite(b) && b.by === "ai")) return;
   let beds = 0; for (const b of mine) if (b.done && TYPES[b.type].beds) beds += TYPES[b.type].beds;
   const free = beds - n;
@@ -714,6 +720,186 @@ function planTown(W, T) {
     return;
   }
 }
+// ---------- wonders of the world ----------
+// The world is seeded with wonders: roughly one in every second 48x48 region, at least 48 tiles from the start,
+// so only an expedition (or very far-wandering villagers) will ever meet them.
+const RG = 48;
+const dry = (x, y) => !isWater(x, y) && !wet(x, y) && lakeV(x, y) < .58;
+const flat = (x, y) => Math.abs(heightAt(x + 2, y) - heightAt(x - 2, y)) < 3 && Math.abs(heightAt(x, y + 2) - heightAt(x, y - 2)) < 3;
+const coast = (x, y) => { const l = lakeV(x, y); return !isWater(x, y) && l > .6 && l < .7 && heightAt(x, y) < 2.6; };
+export const WONDERS = {
+  stones:     { name: "Stone Circle", d: "Seven tall stones in a ring. Nobody remembers who raised them.", rumor: "a ring of tall standing stones", ok: (x, y, h) => dry(x, y) && flat(x, y) && h < 20 },
+  falls:      { name: "Great Falls", d: "A river throws itself over a cliff. You hear it from far away.", rumor: "a waterfall louder than thunder", ok: (x, y, h) => !wet(x, y) && riverD(x, y) < 4 && Math.abs(heightAt(x + 3, y + 3) - heightAt(x - 3, y - 3)) > 4 },
+  elder:      { name: "Elder Oak", d: "An oak as wide as a barn. Ribbons hang from its branches.", rumor: "an oak as wide as a barn", ok: (x, y, h) => dry(x, y) && h < 18 },
+  ruins:      { name: "Ancient Ruins", d: "Broken walls of a tower from a forgotten age. Ivy holds the stones together.", rumor: "old ruins from a forgotten age", ok: (x, y, h) => dry(x, y) && flat(x, y) },
+  spring:     { name: "Hot Spring", d: "Warm turquoise pools steam on a rocky ledge.", rumor: "hot water bubbling out of the rock", ok: (x, y, h) => dry(x, y) && h >= 10 && h < 30 },
+  crystal:    { name: "Crystal Cave", d: "Crystals glow blue and violet around a dark cave mouth.", rumor: "a cave that glows at night", ok: (x, y, h) => dry(x, y) && h >= 22 && h < 40 },
+  bones:      { name: "Giant's Bones", d: "The ribs of a creature bigger than any house, half buried in the sand.", rumor: "the bones of a creature bigger than a house", ok: (x, y, h) => coast(x, y) || (dry(x, y) && flat(x, y) && h < 8) },
+  fairy:      { name: "Mushroom Ring", d: "Giant red mushrooms stand in a perfect circle. Tiny lights dance between them.", rumor: "a ring of giant mushrooms", ok: (x, y, h) => dry(x, y) && h < 16 && (flowerV(x, y) > .2 || birchV(x, y) > .2) },
+  shrine:     { name: "Hermit's Shrine", d: "A tiny chapel with a bell on a post. Someone keeps the candles lit.", rumor: "a lonely shrine with a bell", ok: (x, y, h) => dry(x, y) && flat(x, y) && h >= 8 && h < 28 },
+  obelisk:    { name: "Sky Obelisk", d: "A tall pale stone, carved with suns and spirals.", rumor: "a tall carved stone", ok: (x, y, h) => dry(x, y) && flat(x, y) && h < 14 },
+  lighthouse: { name: "Old Lighthouse", d: "A round tower on the shore. Its lamp went dark long ago.", rumor: "an old lighthouse on the shore", ok: (x, y, h) => coast(x, y) },
+  arch:       { name: "Stone Arch", d: "A bridge of rock, made by wind and a very long time.", rumor: "a rock arch like a bridge", ok: (x, y, h) => dry(x, y) && h >= 18 && h < 38 },
+};
+export const WONDER_KINDS = Object.keys(WONDERS);
+export function wonderIn(W, rx, ry) {
+  const cache = W.wc || (W.wc = new Map()), key = rx + "," + ry; if (cache.has(key)) return cache.get(key);
+  const sd = W.S.seed | 0, Hh = c => ih(((rx * 73856093) ^ sd ^ (c * 2654435)) | 0, ((ry * 19349663) + c * 83492791 + sd) | 0);
+  let res = null;
+  if (Hh(1) < .62) {
+    const k0 = Math.floor(Hh(2) * WONDER_KINDS.length);
+    outer: for (let j = 0; j < WONDER_KINDS.length; j++) {
+      const kind = WONDER_KINDS[(k0 + j) % WONDER_KINDS.length], def = WONDERS[kind];
+      for (let i = 0; i < 6; i++) {
+        const x = Math.round((rx * RG + 4 + Hh(10 + j * 12 + i * 2) * (RG - 8)) * 2) / 2, y = Math.round((ry * RG + 4 + Hh(11 + j * 12 + i * 2) * (RG - 8)) * 2) / 2;
+        if (Math.hypot(x, y) < 48) continue;
+        if (def.ok(x, y, heightAt(x, y))) { res = { id: key, k: kind, x, y }; break outer; }
+      }
+    }
+  }
+  cache.set(key, res); return res;
+}
+const COMPASS = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
+// screen directions: the map is drawn isometric, so "north" is the top of the screen
+export function compass(dx, dy) { const a = Math.atan2(dx + dy, dx - dy); return COMPASS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; }
+const homeOf = W => { const t = W.S.towns[0], h = t ? hallOf(W, t) : camp(W); return h ? doorOf(h) : { x: 0, y: 0 }; };
+function foundWonder(W, w, p) {
+  const S = W.S, def = WONDERS[w.k]; S.wonders.push({ id: w.id, k: w.k, x: w.x, y: w.y, at: S.tick, by: p.name });
+  reveal(W, w.x, w.y, 10); S.renown = S.wonders.length;
+  addLog(W, (p.trek ? p.name + " and the explorers" : p.name) + " found a wonder: the " + def.name + ". " + def.d);
+  W.events.push({ k: "wonder", w, by: p.name });
+  const n = S.wonders.length;
+  milestone(W, "wonder1", "A Wonder of the World", "Word of the " + def.name + " will travel. Newcomers arrive a little faster.");
+  if (n >= 4) milestone(W, "wonder4", "Four Wonders", "Travellers talk about your valley now.");
+  if (n >= 8) milestone(W, "wonder8", "Eight Wonders", "Your people have seen more of the world than anyone.");
+  if (n >= WONDER_KINDS.length) milestone(W, "wonderAll", "Every Kind of Wonder", "Twelve wonders, each one different.");
+  if (S.rumor && S.rumor.id === w.id) S.rumor = null;
+  if (p.trek && S.trek) { S.trek.rest = 120 + rnd(W) * 180; S.trek.restAct = "Marvelling at the " + def.name; S.trek.found.push(w.id); }
+}
+function discoverCheck(W) {
+  const S = W.S;
+  for (const p of S.people) {
+    if (p.asleep || p.inside || !(p.trek || p.pilgrim)) continue;
+    const rx = Math.floor(p.x / RG), ry = Math.floor(p.y / RG);
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const w = wonderIn(W, rx + i, ry + j); if (!w || Math.hypot(w.x - p.x, w.y - p.y) > 9 || S.wonders.some(q => q.id === w.id)) continue;
+      foundWonder(W, w, p);
+    }
+  }
+}
+// a newcomer tells a story about something far away
+function makeRumor(W) {
+  const S = W.S, c = homeOf(W); let best = null, bd = 1e9;
+  for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) {
+    const w = wonderIn(W, Math.floor(c.x / RG) + i, Math.floor(c.y / RG) + j); if (!w || S.wonders.some(q => q.id === w.id)) continue;
+    const d = Math.hypot(w.x - c.x, w.y - c.y); if (d >= 48 && d < 230 && d < bd) { bd = d; best = w; }
+  }
+  if (!best) return;
+  S.rumor = { id: best.id, k: best.k, x: best.x, y: best.y, dir: compass(best.x - c.x, best.y - c.y) };
+  addLog(W, "A newcomer tells of " + WONDERS[best.k].rumor + ", far to the " + S.rumor.dir + ". Maybe worth an expedition.");
+  W.events.push({ k: "rumor", dir: S.rumor.dir });
+}
+// ---------- expeditions ----------
+// A small party walks out with food for the trip, rests every 15 tiles or so, camps at night, looks around the target,
+// and walks back the same way. A trip to 100 tiles takes a few hours of real time.
+const TREK_SPD = .6;
+const dryNear = (x, y) => { if (!isWater(x, y)) return { x, y }; for (let r = 2; r <= 10; r += 2) for (let a = 0; a < 6.3; a += .5) { const qx = x + Math.cos(a) * r, qy = y + Math.sin(a) * r; if (!isWater(qx, qy)) return { x: qx, y: qy }; } return null; };
+function trekLaunch(W, tx, ty, by) {
+  const S = W.S; if (S.phase !== "settled") return "Settle first.";
+  if (S.trek) return "The explorers are already out.";
+  const h = homeOf(W), d = Math.hypot(tx - h.x, ty - h.y);
+  if (d < 18) return "Too close. Pick a place farther away."; if (d > 240) return "Too far for one trip.";
+  if (S.res.food < 24) return "Not enough food to pack. The explorers need 24.";
+  const T = dryNear(tx, ty); if (!T) return "That is open water. Pick land.";
+  const score = p => (p.role === "scout" ? 3 : 0) + (p.trait === "curious" ? 2 : p.trait === "early riser" || p.trait === "hard worker" ? 1 : 0);
+  const pool = S.people.filter(p => !p.pioneer && !p.watch && !p.trek && !p.carry && !p.asleep && !p.inside && p.state !== "bed" && p.state !== "sleep" && p.role !== "build");
+  if (pool.length < 2) return "Not enough free hands right now.";
+  pool.sort((a, b) => score(b) - score(a) || a.id - b.id);
+  const mem = pool.slice(0, S.people.length >= 9 ? 3 : 2);
+  const L = Math.max(1, Math.round(d / 15)), legs = [];
+  for (let i = 1; i <= L; i++) { const q = dryNear(h.x + (T.x - h.x) * i / L, h.y + (T.y - h.y) * i / L) || { x: T.x, y: T.y }; legs.push({ x: q.x, y: q.y, k: "leg" }); }
+  legs[L - 1] = { x: T.x, y: T.y, k: "leg", last: 1 };
+  const a0 = rnd(W) * 6.28, looks = [0, 1, 2].map(i => { const q = dryNear(T.x + Math.cos(a0 + i * 2.1) * 10, T.y + Math.sin(a0 + i * 2.1) * 10) || T; return { x: q.x, y: q.y, k: "look" }; });
+  const back = legs.slice(0, L - 1).reverse().map(q => ({ x: q.x, y: q.y, k: "back" })).concat([{ x: h.x, y: h.y, k: "home" }]);
+  const dir = compass(T.x - h.x, T.y - h.y), name = dir[0].toUpperCase() + dir.slice(1) + "ern Expedition";
+  S.trek = { name: name.replace("north-ern", "North-eastern").replace(/ern Expedition$/, "ern Expedition"), dir, members: mem.map(p => p.id), hx: h.x, hy: h.y, tx: T.x, ty: T.y, path: [...legs, ...looks, ...back], i: 0, rest: 0, restAct: "", at: S.tick, found: [], stuck: 0, sk: 60, bd: 1e9, by, far: Math.round(d) };
+  S.res.food -= 24;
+  for (const p of mem) { p.obj = null; p.carry = null; p.job = null; p.pack = true; p.trek = 1; p.state = "trek"; p.sit = false; p.inside = false; p.asleep = false; p.act = "Setting out on an expedition"; }
+  addLog(W, mem.map(p => p.name).join(", ") + " set out to the " + dir + " with food for the road (" + Math.round(d) + " tiles). " + (by === "mayor" ? "The Mayor asked them to." : "They could not sit still any longer."));
+  W.events.push({ k: "trek", what: "start", dir });
+  milestone(W, "trek1", "First Expedition", "A small party leaves the valley to see what lies beyond.");
+  return null;
+}
+function trekFinish(W) {
+  const S = W.S, T = S.trek; if (!T) return;
+  const mem = S.people.filter(p => T.members.includes(p.id));
+  for (const p of mem) { p.trek = 0; p.pack = false; p.sit = false; p.state = "idle"; p.t = 1; p.act = "Back home"; }
+  const hrs = Math.max(.1, (S.tick - T.at) / 14400), n = T.found.length;
+  S.res.food = Math.min(capOf(W), S.res.food + 6 * mem.length);
+  addLog(W, "The " + T.name + " is back after " + hrs.toFixed(1) + " hours. " + (n ? "They found " + n + " wonder" + (n > 1 ? "s" : "") + "." : "No wonders this time, but they know the land better now.") + " They brought back berries and stories.");
+  W.events.push({ k: "trek", what: "end", n });
+  S.lastTrek = S.tick; S.trek = null;
+}
+function trekStep(W, p, H) {
+  const S = W.S, T = S.trek;
+  if (!T || !T.members.includes(p.id)) { p.trek = 0; p.pack = false; p.state = "idle"; p.t = 1; return; }
+  const lead = S.people.find(q => q.id === T.members[0]);
+  if (!lead) { for (const q of S.people) if (T.members.includes(q.id)) { q.trek = 0; q.state = "idle"; } S.trek = null; return; }
+  if (H >= 21.5 || H < 5.3) { p.sit = true; p.moving = false; p.act = "Camping under the stars"; return; }
+  p.sit = false;
+  const idx = T.members.indexOf(p.id);
+  if (T.rest > 0) { if (idx === 0) T.rest -= DT; p.sit = true; p.act = T.restAct || "Resting"; return; }
+  if (idx > 0) {
+    if (Math.hypot(p.x - lead.x, p.y - lead.y) > 10) { p.x = lead.x - .8 * idx; p.y = lead.y + .5 * idx; }
+    p.tx = lead.x + (idx % 2 ? -.9 : .9); p.ty = lead.y + .35 * idx; if (Math.hypot(p.tx - p.x, p.ty - p.y) > .7) walk(W, p, TREK_SPD * 1.25); p.act = "On an expedition"; return;
+  }
+  const wp = T.path[T.i]; if (!wp) { trekFinish(W); return; }
+  p.tx = wp.x; p.ty = wp.y; p.act = wp.k === "look" ? "Exploring the area" : wp.k === "home" || wp.k === "back" ? "Heading home" : "On an expedition to the " + T.dir;
+  if (walk(W, p, TREK_SPD) || Math.hypot(wp.x - p.x, wp.y - p.y) < 1.3) {
+    T.i++; T.bd = 1e9; T.stuck = 0; T.sk = 60;
+    if (wp.k === "home") { trekFinish(W); return; }
+    if (wp.last) { T.rest = 600 + rnd(W) * 600; T.restAct = "Making camp and studying the land"; addLog(W, "The explorers reached the place they were heading for and are looking around."); }
+    else if (wp.k === "look") { T.rest = 480 + rnd(W) * 600; T.restAct = "Exploring the area"; }
+    else { T.rest = 480 + rnd(W) * 720; T.restAct = wp.k === "back" ? "Resting on the way home" : "Resting and eating"; if (rnd(W) < .3) addLog(W, TREK_TALES[(rnd(W) * TREK_TALES.length) | 0].replace("%", p.name)); }
+    return;
+  }
+  T.sk -= DT;
+  if (T.sk <= 0) {
+    T.sk = 60; const d = Math.hypot(wp.x - p.x, wp.y - p.y);
+    if (d > T.bd - 1.2) {
+      T.stuck++;
+      if (T.stuck >= 10 && wp.k === "home") { for (const q of S.people) if (T.members.includes(q.id)) { q.x = T.hx; q.y = T.hy; } addLog(W, "The explorers got lost, but a farmer showed them the way home."); trekFinish(W); return; }
+      if (T.stuck >= 6) { T.i++; T.stuck = 0; }
+      else if (T.stuck >= 2) { const a = Math.atan2(wp.y - p.y, wp.x - p.x) + (T.stuck % 2 ? 1.1 : -1.1), q = dryNear(p.x + Math.cos(a) * 10, p.y + Math.sin(a) * 10); if (q) T.path.splice(T.i, 0, { x: q.x, y: q.y, k: "detour" }); }
+    } else T.stuck = 0;
+    T.bd = d;
+  }
+}
+const TREK_TALES = ["% saw deer drinking at a stream.", "The explorers crossed a stream and refilled their water.", "A storm of birds rose from a meadow as the explorers passed.", "% found wild berries and everyone ate well.", "Rain came. The explorers waited under a rock.", "The explorers carved a mark into a tree so they can find the way back."];
+function trekAI(W, H) {
+  const S = W.S; if (S.trek || S.exp || S.phase !== "settled" || S.people.length < 9 || S.res.food < 40 || S.tick < 28800) return;
+  if (H < 5.6 || H > 9.5 || S.tick < (S.trekRetry || 0)) return;
+  if (S.tick - (S.lastTrek || 0) < (S.rumor ? 14400 : 86400)) return;
+  const h = homeOf(W); let tx, ty;
+  if (S.rumor) { tx = S.rumor.x + (rnd(W) - .5) * 8; ty = S.rumor.y + (rnd(W) - .5) * 8; }
+  else {
+    let best = -1e9;
+    for (let a = 0; a < 24; a++) for (const r of [45, 70, 95, 120]) {
+      const ang = a / 24 * 6.283, x = h.x + Math.cos(ang) * r, y = h.y + Math.sin(ang) * r; if (isWater(x, y) || heightAt(x, y) > 34) continue;
+      let ok = 0; for (let k = 1; k <= 8; k++) if (!isWater(h.x + Math.cos(ang) * r * k / 8, h.y + Math.sin(ang) * r * k / 8)) ok++; if (ok < 7) continue;
+      let hid = 0; for (const [dx, dy] of [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]]) if (hidden(W, x + dx, y + dy)) hid++;
+      const sc = hid * 10 - r * .12 + ih(a * 31 + (S.seed & 255), r) * 4; if (sc > best) { best = sc; tx = x; ty = y; }
+    }
+    if (best < -1e8) { S.trekRetry = S.tick + 28800; return; }
+  }
+  const err = trekLaunch(W, tx, ty, "ai"); if (err) S.trekRetry = S.tick + 7200;
+}
+function trekRecall(W) {
+  const S = W.S, T = S.trek; if (!T) return "Nobody is out.";
+  const visited = T.path.slice(0, T.i).filter(q => q.k === "leg" || q.k === "back").map(q => ({ x: q.x, y: q.y, k: "back" })).reverse();
+  T.path = [...visited, { x: T.hx, y: T.hy, k: "home" }]; T.i = 0; T.rest = 0; T.stuck = 0; T.bd = 1e9;
+  addLog(W, "The Mayor called the explorers back."); S.rev++; return null;
+}
 // ---------- the whole world, one tick ----------
 export function pathAt(S, d) { const P = S.wagon.path; if (!P) return { x: S.wagon.x, y: S.wagon.y }; const i = clamp(Math.floor(d / .25), 0, P.length - 1); return P[i]; }
 // several worlds can live in one page (e.g. while resyncing); terrain helpers follow the active one
@@ -756,6 +942,8 @@ export function step(W) {
     S.eatT += DT; if (S.eatT > 300) { S.eatT = 0; const need = S.people.filter(p => !p.asleep).length; if (S.res.food >= need) { S.res.food -= need; S.hungry = false; } else { S.res.food = 0; if (!S.hungry) addLog(W, "Food is running low. Everyone works a little slower."); S.hungry = true; } }
     if (S.rally) { S.rally.t += DT; if (S.rally.t > 120) { addLog(W, "The rally is over. Everyone goes back to their own work."); S.rally = null; } }
     S.roleT -= DT; if (S.roleT <= 0) { S.roleT = 20; assignRoles(W); }
+    if (S.tick % 40 === 0) discoverCheck(W);
+    S.trekT -= DT; if (S.trekT <= 0) { S.trekT = 60; trekAI(W, H); }
     S.planT -= DT; if (S.planT <= 0) { S.planT = 150; plan(W); }
     // newcomers
     S.arriveT -= DT;
@@ -764,9 +952,10 @@ export function step(W) {
       if (bedsTotal(W) > n && S.res.food >= 12 + n * 2 && !night(H)) {
         const e = W.trail.find(q => !hidden(W, q.x, q.y)) || { x: 0, y: 0 }, p = newPerson(W, e.x, e.y), cm = camp(W), c = cm ? doorOf(cm) : { x: 0, y: 0 };
         p.state = "arrive"; p.tx = c.x; p.ty = c.y; p.act = "Arriving in the village"; p.home = homeFor(W); p.role = "wood";
-        S.people.push(p); S.arriveT = 900 + n * 240;
+        S.people.push(p); S.arriveT = (900 + n * 240) * (1 - Math.min(.4, (S.renown || 0) * .05));
         addLog(W, p.name + " (" + p.trait + ") arrived and wants to live here.");
         W.events.push({ k: "arrive", p });
+        if (!S.rumor && !S.trek && S.people.length >= 7 && rnd(W) < .35) makeRumor(W);
         if (S.people.length >= 7) milestone(W, "pop7", "Seven Souls", "The village grows. The Quarry is unlocked.");
         if (S.people.length >= 8) milestone(W, "pop8", "Eight Villagers", "Enough hands for a shepherd. The Sheepfold is unlocked.");
         if (S.people.length >= 10) milestone(W, "pop10", "Ten Villagers", "A real village now. The Well and the Tavern are unlocked.");
@@ -857,7 +1046,7 @@ function expeditions(W) {
   const need = 12 + 8 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0);
   if (n < need || since < 288000) return; // at least ~20 hours between foundings
   const site = townSite(W); if (!site) { S.lastFound = S.tick - 200000; return; }
-  const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch);
+  const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch && !p.trek);
   if (cand.length < 6) return;
   const mem = cand.slice(-3), used = new Set(S.towns.map(t => t.name)), names = TOWN_NAMES.filter(q => !used.has(q)), name = names[(rnd(W) * names.length) | 0] || "Newtown " + (S.towns.length + 1);
   S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y };
@@ -926,6 +1115,8 @@ export function act(W, a) {
     for (const p of S.people) if (p.state === "idle" || (p.state === "go" && p.job === "rest") || (p.state === "work" && p.job === "rest")) { p.obj = null; p.sit = false; p.state = "idle"; p.t = rnd(W) * .6; }
     S.rev++; return null;
   }
+  if (a.k === "trek") { activate(W); const err = trekLaunch(W, +a.x, +a.y, "mayor"); if (err) return err; S.rev++; return null; }
+  if (a.k === "trekcancel") return trekRecall(W);
   return "Unknown action.";
 }
 // ---------- save / load ----------

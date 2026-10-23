@@ -5,6 +5,7 @@
 // ============================================================
 import * as M from "./sim.js";
 import { PAL, buildSprites, mix } from "./gfx.js";
+import { wonderSprites } from "./wonders.js";
 const { C, C4, WK } = M;
 export const sx = (x, y) => (x - y) * 8, sy = (x, y) => (x + y) * 4;
 const rgb = c => "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
@@ -458,6 +459,11 @@ function drawEntities(vis, hour, VWa, VHa) {
     const prop = { wcut: [SP.wood[1], 2.5, .7], forage: [SP.food[1], 2.4, 1.2], fisher: [SP.bld.rack, 2.6, .9], quarry: [SP.stone[2], 2.5, .9], store: [SP.wood[tier(R0.wood)], 3.4, 1.4] }[b.type];
     if (prop && b.done) spr(ents, prop[0], b.x + prop[1], b.y + prop[2], b.x + prop[1] + b.y + prop[2], info, VWa, VHa, bH(b));
   }
+  { const WS = wonderSprites(season);
+    for (const w of S.wonders) { const s = WS[w.k], d = M.WONDERS[w.k]; if (!s) continue; spr(ents, s, w.x, w.y, w.x + w.y, { t: d.name, d: d.d + " Found by " + w.by + "." }, VWa, VHa); }
+    const T = S.trek; if (T) { const lead = S.people.find(q => q.id === T.members[0]);
+      if (lead && !M.hidden(W, lead.x, lead.y) && (T.rest > 0 || hour >= 21.5 || hour < 5.3)) { const f = { x: lead.x + 1.2, y: lead.y + .9 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(gyH(f.x, f.y) - vy0);
+        ents.push({ depth: f.x + f.y, draw: () => drawFire(fx, fy, hour), box: [fx - 7, fy - 10, fx + 7, fy + 4, { t: "Campfire", d: "The " + T.name + " is resting here." }] }); if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: gyH(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 }); } } }
   // wagon + ox
   const wg = S.wagon, ws = wg.alongY ? SP.wagonM : SP.wagon;
   spr(ents, ws, wg.alongY ? wg.x - .65 : wg.x - 1.2, wg.alongY ? wg.y - 1.2 : wg.y - .65, wg.x + wg.y + .8, { t: "Wagon", d: S.phase === "choose" ? "Everything the settlers own. Waiting for the Mayor's decision." : "It carried the first settlers and all their tools." }, VWa, VHa);
@@ -597,6 +603,12 @@ export function addFloat(x, y, t, c) { floats.push({ x, y, t, c, a: 0 }); }
 function drawGhost() {
   const g = view.ghost; if (!g) return;
   const col = g.ok ? "#ffd36a" : "#ff6a5a";
+  if (g.kind === "trek") {
+    const x = sx(g.x, g.y) - vx0, y = gyH(g.x, g.y) - vy0, r = 8;
+    ctx.globalAlpha = .16; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, r * 11.3, r * 5.66, 0, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = col;
+    for (let a = 0; a < 6.28; a += .04) { if (Math.floor(a * 8 + T * 2) % 2 === 0) continue; ctx.fillRect(Math.round(x + Math.cos(a) * r * 11.3) - 1, Math.round(y + Math.sin(a) * r * 5.66), 2, 1); }
+    px(ctx, x, y - 16, 1, 16, "#5a3a24"); px(ctx, x + 1, y - 16, 6, 3, "#d8503c"); px(ctx, x + 1, y - 13, 4, 1, "#d8503c"); return;
+  }
   if (g.kind === "settle") {
     const x = sx(g.x, g.y) - vx0, y = gyH(g.x, g.y) - vy0, r = 4.3;
     ctx.globalAlpha = .18; ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, r * 11.3, r * 5.66, 0, 0, 6.29); ctx.fill(); ctx.globalAlpha = 1;
