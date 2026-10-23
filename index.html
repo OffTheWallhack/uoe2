@@ -41,7 +41,39 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 /* top strip */
 .top{position:absolute;left:0;right:0;top:0;height:calc(var(--top) + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(8px,env(safe-area-inset-right)) 0 max(8px,env(safe-area-inset-left));display:flex;align-items:center;gap:10px;
   background:repeating-linear-gradient(90deg,rgba(0,0,0,.06) 0 2px,transparent 2px 7px),linear-gradient(180deg,#5a4a36,#33281b 70%,#2a2014);border-bottom:2px solid var(--trim);box-shadow:0 2px 0 #120b05,0 4px 10px rgba(0,0,0,.5);z-index:4}
-.res{display:flex;align-items:center;gap:2px;min-width:0;overflow:hidden}
+.res{display:flex;align-items:center;gap:2px;min-width:0;overflow:hidden;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+.res:hover .r{color:#fff}
+.vil{flex:none;font-size:13px;padding:2px 10px 2px 6px;min-height:28px;max-width:40%}
+.vil span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vil .dn{font-size:10px;color:var(--gold)}
+/* kill feed: tiny event lines, top-left */
+.kf{position:absolute;align-items:flex-start;left:max(8px,env(safe-area-inset-left));top:calc(var(--top) + env(safe-area-inset-top) + 8px);margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;z-index:3;max-width:min(300px,calc(100% - 70px));pointer-events:none}
+.kf li{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:6px;background:rgba(20,12,6,.72);border:1px solid rgba(168,128,58,.6);padding:2px 8px 2px 4px;font:12px/1.3 var(--body);color:var(--ink);text-shadow:0 1px 0 #000;animation:kfin .25s ease-out;transition:opacity .7s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kf li span:last-child{overflow:hidden;text-overflow:ellipsis}
+.kf li .e{font-size:13px;flex:none}
+.kf li.out{opacity:0}
+@keyframes kfin{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.kf li{animation:none}}
+/* town names on the map */
+.labels{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:hidden}
+.tl{position:absolute;left:0;top:0;font:15px/1 var(--pix);color:#fff4d0;text-shadow:0 0 3px #000,0 1px 0 #000,1px 0 0 #000,-1px 0 0 #000;white-space:nowrap;letter-spacing:.04em}
+.tl.sm{font-size:12px;opacity:.85}
+/* rally group in the command grid */
+.glab{grid-column:span 1;display:flex;align-items:center;justify-content:center;font:600 10px var(--display);color:var(--gold);text-transform:uppercase;letter-spacing:.06em;border-left:1px solid rgba(168,128,58,.5)}
+.cb .st{position:absolute;right:1px;top:1px;font:7px/1 var(--pix);font-style:normal;padding:1px 2px;background:#120b05;color:var(--muted);border:1px solid #000}
+.cb.on .st{background:var(--gold);color:#2a1a08}
+.cb .mt{position:absolute;left:2px;bottom:1px;height:2px;background:var(--gold)}
+.cb.rl:not(.on){opacity:.92}
+/* village sheet */
+.sheet.left{right:auto;left:max(8px,env(safe-area-inset-left))}
+.vstats{display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.vs{display:flex;flex-direction:column;align-items:center;gap:2px;background:rgba(0,0,0,.25);border:1px solid rgba(0,0,0,.5);padding:5px 2px}
+.vs b{font:15px var(--pix);color:#f8ecc8}.vs small{font-size:10px;color:var(--muted)}
+.vtown{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.35)}
+.vtown b{display:block;font:700 14px var(--display);color:var(--ink)}
+.vtown .meta,.sheet .meta{font-size:12px;color:var(--muted);margin:2px 0}
+.vlist{list-style:none;padding:0!important;margin:0}.vlist li{font-size:13px;padding:1px 0}.vlist b{font:13px var(--pix);color:var(--gold);display:inline-block;min-width:24px}
+.vlist.cols{columns:2;column-gap:12px}
 .r{display:flex;align-items:center;gap:5px;padding:2px 9px 2px 4px;border-right:1px solid rgba(0,0,0,.45);box-shadow:1px 0 0 rgba(255,226,150,.12);font:16px/1 var(--pix);color:#f8ecc8;text-shadow:0 1px 0 #000;white-space:nowrap}
 .r small{font:10px var(--body);color:var(--muted);text-shadow:none}
 .r.low b{color:#ff9a7a}
@@ -78,12 +110,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 .banner{position:absolute;left:50%;top:calc(var(--top) + env(safe-area-inset-top) + 12px);transform:translateX(-50%);background:var(--parch);color:var(--pink);border:2px solid #6a4e32;outline:1px solid #2a1a0c;padding:7px 16px;text-align:center;max-width:min(480px,calc(100% - 120px));pointer-events:none;box-shadow:0 3px 0 rgba(0,0,0,.45);z-index:3}
 .banner span{display:block;font:700 15px/1.25 var(--display)}
 .banner i{display:block;font:italic 13px var(--body);color:#6a5434;margin-top:2px}
-.toast{position:absolute;left:50%;top:calc(var(--top) + env(safe-area-inset-top) + 84px);transform:translateX(-50%);padding:9px 18px;text-align:center;pointer-events:none;min-width:240px;max-width:calc(100% - 24px);z-index:3}
-.toast b{display:block;font:700 18px var(--display);color:var(--gold);text-shadow:0 2px 0 #000}
-.toast span{font-size:13px;color:var(--ink)}
-.toast.in{animation:pop .35s ease-out}
 @keyframes pop{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
-@media (prefers-reduced-motion:reduce){.toast.in{animation:none}}
 .big{position:absolute;left:50%;bottom:calc(var(--cmd) + env(safe-area-inset-bottom) + 14px);transform:translateX(-50%);display:flex;gap:8px;z-index:3}
 .big .btn{font-size:15px;padding:8px 22px;min-height:42px}
 .big .gold{background:linear-gradient(180deg,#f6c46a,#c98a32);color:#2a1a08;text-shadow:0 1px 0 rgba(255,255,255,.3)}
@@ -113,8 +140,8 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   .top{flex-wrap:wrap;align-content:center;row-gap:2px;column-gap:6px}
   .res{order:1;width:100%;justify-content:space-between}
   .r{padding:2px 5px 2px 2px;font-size:14px}.r small{display:none}
-  .mid{order:2;text-align:left;font-size:11.5px}
-  .tb{order:3}.tb .btn{min-height:24px;padding:1px 8px;font-size:10.5px}
+  .mid{order:3;flex:1;text-align:left;font-size:11.5px}
+  .tb{order:4}.tb .btn{min-height:24px;padding:1px 8px;font-size:10.5px}
   .cmd{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:56px 1fr;gap:6px}
   .sel{grid-column:1 / -1;padding:5px 8px}
   .sel h3{font-size:13.5px}.sel p{font-size:12px;margin:0}
@@ -122,7 +149,10 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   .cb{width:46px;height:46px}
   #mm{width:150px;height:75px}
   .banner{max-width:calc(100% - 70px);left:calc(50% - 22px)}
-  .toast{top:calc(var(--top) + env(safe-area-inset-top) + 96px)}
+  .vil{order:2;font-size:11px;min-height:22px;padding:1px 6px 1px 3px}
+  .kf{top:calc(var(--top) + env(safe-area-inset-top) + 6px);max-width:calc(100% - 60px)}
+  .kf li{font-size:11px}
+  .vstats{grid-template-columns:repeat(5,1fr)}.vs b{font-size:13px}
 }
 @media (max-width:720px) and (max-height:560px){:root{--cmd:120px}}
 @media (min-width:721px) and (max-width:1100px){.grid{grid-template-columns:repeat(6,48px)}}
@@ -132,19 +162,21 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 <div id="stage">
   <canvas id="cv" aria-label="The village, pixel-art isometric view"></canvas>
   <header class="top">
-    <div class="res">
+    <button class="res" id="resbar" aria-label="Village overview">
       <div class="r" id="food" title="Food"><img class="pi" data-ic="food" alt=""><b id="rfood">0</b><small>Food</small></div>
       <div class="r" title="Wood"><img class="pi" data-ic="wood" alt=""><b id="rwood">0</b><small>Wood</small></div>
       <div class="r" title="Stone"><img class="pi" data-ic="stone" alt=""><b id="rstone">0</b><small>Stone</small></div>
       <div class="r" title="Villagers / beds"><img class="pi" data-ic="pop" alt=""><b id="rpop">0</b><small>Villagers</small></div>
       <div class="r" title="Storage per resource"><img class="pi" data-ic="store" alt=""><b id="cap">0</b><small>Storage</small></div>
-    </div>
+    </button>
+    <button class="btn vil" id="vilbtn" aria-label="Village overview"><img class="pi" data-ic="pop" alt=""><span id="vname">Village</span><span class="dn">▾</span></button>
     <div class="mid"><span id="hud"></span><span class="net" id="net" hidden>…</span></div>
     <div class="tb"><button class="btn" id="logbtn">Chronicle</button><button class="btn" id="menubtn">Menu</button></div>
   </header>
   <div class="side"><button class="btn" id="zin" aria-label="Zoom in"><img class="pi" data-ic="plus" alt=""></button><span class="zl" id="zl"></span><button class="btn" id="zout" aria-label="Zoom out"><img class="pi" data-ic="minus" alt=""></button><button class="btn" id="zworld" aria-label="Whole world" title="Whole world"><img class="pi" data-ic="globe" alt=""></button><button class="btn" id="center" aria-label="Back to the village" title="Back to the village"><img class="pi" data-ic="home" alt=""></button></div>
   <div class="banner" id="banner" hidden></div>
-  <div class="toast carved" id="toast" hidden></div>
+  <ul class="kf" id="kf" aria-live="polite"></ul>
+  <div class="labels" id="labels" hidden></div>
   <div class="big" id="settlebar" hidden><button class="btn gold" id="settle">Settle here</button></div>
   <div class="big" id="placebar" hidden><button class="btn gold" id="placebtn">Place</button><button class="btn" id="placecancel">Cancel</button></div>
   <footer class="cmd">
@@ -153,6 +185,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
     <section class="well mmwrap"><canvas id="mm" width="128" height="64" aria-label="Minimap. Tap to move the view."></canvas></section>
   </footer>
   <section class="sheet carved" id="logsheet" hidden><h2>Chronicle</h2><button class="btn x" data-close="logsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><ul class="feed" id="feed"></ul></section>
+  <section class="sheet carved left" id="vilsheet" hidden><h2>Village</h2><button class="btn x" data-close="vilsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><div id="vilbody"></div></section>
   <section class="sheet carved" id="menusheet" hidden><h2>Menu</h2><button class="btn x" data-close="menusheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
     <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" id="fsbtn"><img class="pi" data-ic="full" alt="">Full screen</button></div>
     <p id="fshint" class="meta" hidden>On iPhone: tap Share, then “Add to Home Screen”. The game then opens full screen like an app.</p>

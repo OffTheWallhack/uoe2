@@ -42,13 +42,21 @@ async function doAct(a) {
   busyAct = false; $("busyact").hidden = true;
 }
 function afterAct(a) { if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
-function say(t) { toast("", t); }
+function say(t) { feed("💬", t); }
 // ---------- sandbox persistence ----------
 function saveSandbox() { if (LIVE || !W) return; try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
 function newSandbox(seed) { W = M.createWorld(seed, Date.now()); G.setWorld(W); centerOn(W.S.wagon.x, W.S.wagon.y); renderLog(true); }
 // ---------- UI ----------
-let toasts = [], toastT = 0, gridMode = "main", gridSig = "", selKey = null;
-function toast(title, txt) { toasts.push({ title, txt }); }
+let gridMode = "main", gridSig = "", selKey = null;
+function toast(title, txt) { feed(title ? "🏆" : "💬", title || txt, title ? txt : ""); }
+// small "kill feed" in the top-left corner: one line per event, fades on its own, tap to dismiss
+function feed(emo, txt, more) {
+  const box = $("kf"), li = document.createElement("li"), e = document.createElement("span"), t = document.createElement("span");
+  e.className = "e"; e.textContent = emo; t.textContent = txt; li.append(e, t); if (more) li.title = more;
+  li.addEventListener("click", ev => { ev.stopPropagation(); li.remove(); });
+  box.prepend(li); while (box.children.length > 5) box.lastChild.remove();
+  setTimeout(() => li.classList.add("out"), 7000); setTimeout(() => li.remove(), 7800);
+}
 function banner(t, sub) { const b = $("banner"); b.textContent = ""; if (!t) { b.hidden = true; return; } b.hidden = false; const s = document.createElement("span"); s.textContent = t; b.appendChild(s); if (sub) { const i = document.createElement("i"); i.textContent = sub; b.appendChild(i); } }
 function hhmm(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0"); }
 const cap1 = s => s[0].toUpperCase() + s.slice(1);
@@ -68,10 +76,10 @@ function ui() {
   if (S.phase === "choose") { if (OWNER) { if (!view.ghost) banner("Your wagon has arrived. Tap a spot to settle."); } else banner("The settlers are waiting for the Mayor to choose a place."); }
   else if (S.phase === "travel") banner("The wagon is on its way…");
   else if (buildType) banner("Place: " + M.TYPES[buildType].name, view.ghost ? (view.ghost.ok ? "Tap Place to confirm, or tap elsewhere." : view.ghost.why) : "Tap where it should stand.");
-  else if (S.rally) { const r = M.rallyStr(S); banner("All hands: " + S.rally.type + "!", r >= 1 ? "Everyone who can is helping." : "The rush is calming down…"); }
+  else if (S.rally) { const r = M.rallyStr(S), nm = { wood: "Wood", food: "Food", stone: "Stone", build: "Builders" }[S.rally.type]; banner("Rally: all hands on " + nm.toLowerCase() + "!", (r >= 1 ? "Everyone who can is helping." : "The rush is calming down…") + " Tap " + nm + " again to stop."); }
   else banner(null);
-  toastT -= .25; if (toastT <= 0) { const tb = $("toast"); if (toasts.length) { const t = toasts.shift(); tb.textContent = ""; if (t.title) { const b = document.createElement("b"); b.textContent = t.title; tb.appendChild(b); } const s = document.createElement("span"); s.textContent = t.txt; tb.appendChild(s); tb.hidden = false; tb.classList.remove("in"); void tb.offsetWidth; tb.classList.add("in"); toastT = 4; } else tb.hidden = true; }
-  renderLog(false); fillGrid(); fillSel();
+  { const T0 = S.towns && S.towns[0]; $("vname").textContent = S.phase === "settled" ? (T0 ? T0.name : "Village") + (S.towns && S.towns.length > 1 ? " +" + (S.towns.length - 1) : "") : "Settlers"; }
+  renderLog(false); fillGrid(); fillSel(); if (!$("vilsheet").hidden) fillVillage();
 }
 // ---- command buttons (AoE-style grid) ----
 function cbtn(label, ic, on, fn, opt = {}) {
@@ -79,18 +87,23 @@ function cbtn(label, ic, on, fn, opt = {}) {
   if (ic instanceof HTMLCanvasElement) b.appendChild(ic); else b.appendChild(iconEl(ic, 2));
   const s = document.createElement("span"); s.textContent = label; b.appendChild(s);
   if (opt.locked) { const l = iconEl("lock", 1); l.classList.add("lk"); b.appendChild(l); }
+  if (opt.badge) { const t = document.createElement("i"); t.className = "st"; t.textContent = opt.badge; b.appendChild(t); }
+  if (opt.meter != null) { const m = document.createElement("i"); m.className = "mt"; m.style.width = Math.round(opt.meter * 100) + "%"; b.appendChild(m); }
   b.addEventListener("click", e => { e.stopPropagation(); if (!opt.locked) fn(); else toast("", opt.title); }); return b;
 }
 const thumbs = {};
 function fillGrid() {
   const S = W.S, g = $("grid"), settled = S.phase === "settled";
-  const sig = [gridMode, OWNER, settled, buildType, S.rally && S.rally.type, JSON.stringify(S.ms)].join("|"); if (sig === gridSig) return; gridSig = sig; g.textContent = "";
+  const sig = [gridMode, OWNER, settled, buildType, S.rally && S.rally.type, S.rally && Math.floor(S.rally.t / 6), JSON.stringify(S.ms)].join("|"); if (sig === gridSig) return; gridSig = sig; g.textContent = "";
   if (!OWNER) { const p = document.createElement("p"); p.className = "meta"; p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = "You are watching. Only the Mayor can give orders."; g.appendChild(p); return; }
   if (!settled) { const p = document.createElement("p"); p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = S.phase === "choose" ? "Tap the land to pick where your people settle." : "On the way…"; g.appendChild(p); return; }
   if (gridMode === "main") {
     g.appendChild(cbtn("Build", "build", 0, () => { gridMode = "build"; gridSig = ""; }));
-    for (const [t, ic, lab] of [["wood", "axe", "Wood"], ["food", "basket", "Food"], ["stone", "pick", "Stone"], ["build", "flag", "Builders"]])
-      g.appendChild(cbtn(lab, ic, 0, () => doAct({ k: "rally", type: t }), { on: S.rally && S.rally.type === t, title: "Rally: all hands on " + t }));
+    const lbl = document.createElement("div"); lbl.className = "glab"; lbl.textContent = "Rally"; g.appendChild(lbl);
+    for (const [t, ic, lab] of [["wood", "axe", "Wood"], ["food", "basket", "Food"], ["stone", "pick", "Stone"], ["build", "flag", "Builders"]]) {
+      const on = !!(S.rally && S.rally.type === t);
+      g.appendChild(cbtn(lab, ic, 0, () => doAct({ k: "rally", type: on ? "off" : t }), { on, badge: on ? "ON" : "OFF", meter: on ? Math.max(0, 1 - S.rally.t / 120) : null, title: on ? "Rally on " + lab + " is running. Tap to stop it." : "Rally: send everyone to " + lab.toLowerCase() + " for a while" }));
+    }
   } else {
     g.appendChild(cbtn("Back", "back", 0, () => { gridMode = "main"; buildType = null; view.ghost = null; showPlace(false); gridSig = ""; }));
     for (const t of M.BUILD_MENU) {
@@ -127,15 +140,58 @@ function fillSel() {
   else {
     const n = S.people.length, by = {}; for (const p of S.people) by[p.role] = (by[p.role] || 0) + 1;
     key = ["v", n, S.phase, JSON.stringify(by), S.b.filter(q => !q.done).length].join();
+    key += "|" + (S.log[0] && S.log[0].tk);
     build = () => {
-      h3(box, S.phase === "settled" ? "Your village" : "The settlers");
-      if (S.phase !== "settled") { para(box, "Five settlers, an ox, a dog and a wagon full of tools."); return; }
-      const sites = S.b.filter(q => !q.done).length, names = { wood: "wood", food: "food", stone: "stone", build: "builders", scout: "scouts" };
-      para(box, n + " villagers · " + Object.entries(by).map(([k, v]) => v + " " + (names[k] || k)).join(" · ") + (sites ? " · " + sites + " building site" + (sites > 1 ? "s" : "") : ""), "meta");
-      para(box, "Tap a building or a villager to see more.", "meta");
+      if (S.phase !== "settled") { h3(box, "The settlers"); para(box, "Five settlers, an ox, a dog and a wagon full of tools."); return; }
+      h3(box, "Tap anything to see what it is");
+      const l = S.log[0]; if (l) para(box, l.t, "meta");
     };
   }
   if (key === selKey) return; selKey = key; box.textContent = ""; build();
+}
+// ---- village overview sheet (opened from the top bar) ----
+let vilSig = "";
+const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts" };
+function fillVillage() {
+  const S = W.S, box = $("vilbody"), towns = S.towns || [];
+  const sig = [S.people.length, S.b.length, S.b.filter(b => b.done).length, towns.length, JSON.stringify(S.res), !!S.exp, Math.floor(S.tick / 240)].join("|"); if (sig === vilSig) return; vilSig = sig; box.textContent = "";
+  if (S.phase !== "settled") { para(box, "The settlers have not picked a place yet."); return; }
+  const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+  const cap = M.capOf(W);
+  const stats = el("div", "vstats");
+  for (const [ic, v, l] of [["food", S.res.food, "Food"], ["wood", S.res.wood, "Wood"], ["stone", S.res.stone, "Stone"], ["pop", S.people.length + "/" + M.bedsTotal(W), "Villagers"], ["store", cap, "Storage"]]) { const d = el("div", "vs"); d.append(iconEl(ic, 2), el("b", null, String(v)), el("small", null, l)); stats.appendChild(d); }
+  box.appendChild(stats);
+  const h = t => box.appendChild(el("h4", null, t));
+  h(towns.length > 1 ? "Settlements" : "Settlement");
+  for (const T of towns) {
+    const ppl = S.people.filter(p => M.townOf(W, p).id === T.id && !p.pioneer), bs = S.b.filter(b => b.town === T.id), done = bs.filter(b => b.done && !["torch", "bench"].includes(b.type)), sites = bs.filter(b => !b.done);
+    const beds = done.reduce((n, b) => n + (M.TYPES[b.type].beds || 0), 0);
+    const row = el("div", "vtown"), info = el("div");
+    info.append(el("b", null, T.name), el("span", "meta", ppl.length + " villagers · " + beds + " beds · " + done.length + " buildings" + (sites.length ? " · " + sites.length + " being built" : "")));
+    const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(T.x, T.y); $("vilsheet").hidden = true; });
+    row.append(info, go); box.appendChild(row);
+  }
+  if (S.exp) para(box, "🧭 Pioneers from " + S.exp.from + " are on their way to found " + S.exp.name + ".", "meta");
+  h("Who does what");
+  const by = {}; for (const p of S.people) if (!p.pioneer) by[p.role] = (by[p.role] || 0) + 1;
+  const ul = el("ul", "vlist"); for (const [k, v] of Object.entries(by).sort((a, b) => b[1] - a[1])) { const li = el("li"); li.append(el("b", null, String(v)), document.createTextNode(" " + (ROLE_NAMES[k] || cap1(k)))); ul.appendChild(li); } box.appendChild(ul);
+  h("Buildings");
+  const cnt = {}; for (const b of S.b) if (b.done) cnt[b.type] = (cnt[b.type] || 0) + 1;
+  const ul2 = el("ul", "vlist cols"); for (const [k, v] of Object.entries(cnt).sort((a, b) => b[1] - a[1])) { const li = el("li"); li.append(el("b", null, String(v)), document.createTextNode(" " + M.TYPES[k].name)); ul2.appendChild(li); } box.appendChild(ul2);
+  const sites = S.b.filter(b => !b.done); if (sites.length) { h("Being built"); for (const b of sites.slice(0, 8)) para(box, M.TYPES[b.upTo || b.type].name + " · " + Math.round((b.prog || 0) * 100) + "% · " + (b.by === "mayor" ? "your order" : "their own idea"), "meta"); }
+}
+// ---- town name labels over the map ----
+const labelEls = new Map();
+function townLabels() {
+  const S = W.S, box = $("labels"), on = S.phase === "settled"; if (!on) { box.hidden = true; return; } box.hidden = false;
+  const Z = view.zoom, cvr = cv.getBoundingClientRect(), stg = $("stage").getBoundingClientRect();
+  for (const T of S.towns || []) {
+    let e = labelEls.get(T.id); if (!e) { e = document.createElement("div"); e.className = "tl"; box.appendChild(e); labelEls.set(T.id, e); }
+    e.textContent = T.name;
+    const [x, y] = G.screenOf(T.x, T.y), lx = x + cvr.left - stg.left, ly = y + cvr.top - stg.top - Math.max(18, 30 * Math.min(Z, 3));
+    const vis = Z < 3 && lx > -60 && ly > cvr.top - stg.top - 10 && lx < cvr.width + 60 && ly < cvr.bottom - stg.top && !M.hidden(W, T.x, T.y);
+    e.hidden = !vis; if (vis) { e.style.transform = "translate(" + Math.round(lx) + "px," + Math.round(ly) + "px) translate(-50%,-100%)"; e.classList.toggle("sm", Z >= 2); }
+  }
 }
 function h3(box, t) { const h = document.createElement("h3"); h.textContent = t; box.appendChild(h); }
 function para(box, t, cls) { const p = document.createElement("p"); if (cls) p.className = cls; p.textContent = t; box.appendChild(p); }
@@ -187,7 +243,9 @@ $("settle").addEventListener("click", () => { const g = view.ghost; if (g && g.o
 $("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "place", type: g.type, x: g.tx, y: g.ty }); });
 $("placecancel").addEventListener("click", () => { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
 $("center").addEventListener("click", () => { const c = M.camp(W); if (c) centerOn(c.x + 1.5, c.y + 1.5); else centerOn(W.S.wagon.x, W.S.wagon.y); if (view.zoom < 2) setZoom(3); });
-const sheet = id => { for (const s of ["logsheet", "menusheet"]) $(s).hidden = s !== id || !$(s).hidden; };
+const sheet = id => { for (const s of ["logsheet", "menusheet", "vilsheet"]) $(s).hidden = s !== id || !$(s).hidden; };
+$("vilbtn").addEventListener("click", () => { sheet("vilsheet"); vilSig = ""; fillVillage(); });
+$("resbar").addEventListener("click", () => { sheet("vilsheet"); vilSig = ""; fillVillage(); });
 $("logbtn").addEventListener("click", () => { sheet("logsheet"); renderLog(true); });
 $("menubtn").addEventListener("click", () => sheet("menusheet"));
 for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => $(b.dataset.close).hidden = true);
@@ -235,11 +293,14 @@ function loop(now) {
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
   else { acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W); }
   for (const e of W.events) {
-    if (e.k === "milestone") toast(e.title, e.txt);
+    if (e.k === "milestone") feed("🏆", e.title, e.txt);
+    else if (e.k === "arrive" && e.p) feed("👋", e.p.name + " moved in");
+    else if (e.k === "built" && e.b && M.TYPES[e.b.type] && !["torch", "bench", "field"].includes(e.b.type)) feed("🔨", M.TYPES[e.b.upTo || e.b.type].name + " finished");
+    else if (e.k === "town") feed("🏕️", e.name + " was founded");
     else if (e.k === "gain" && view.zoom >= 2) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
   }
   if (mode === "follow") { const wg = W.S.wagon; view.cam.x += (G.sx(wg.x, wg.y) - view.cam.x) * .06; view.cam.y += (G.sy(wg.x, wg.y) - 10 - view.cam.y) * .06; if (W.S.phase === "settled") mode = null; }
-  G.frame(now, rdt);
+  G.frame(now, rdt); townLabels();
   uiAcc += rdt; if (uiAcc > .25) { uiAcc = 0; ui(); }
   mmAcc += rdt; if (mmAcc > 1) { mmAcc = 0; G.minimap($("mm")); }
   saveAcc += rdt; if (saveAcc > 15) { saveAcc = 0; saveSandbox(); markSeen(); }
@@ -263,6 +324,7 @@ async function start() {
     welcomeBack(); markSeen();
   } catch (e) { banner("The world could not be loaded.", String(e.message || e)); console.error(e); }
   $("busy").style.display = "none";
+  view.warm = performance.now() + 2500; // bake the ground faster for the first moments
   requestAnimationFrame(loop);
 }
 window.UOE = { get W() { return W; }, M, G, doAct, setZoom, fitWorld, view, setSpeed: s => speed = s };

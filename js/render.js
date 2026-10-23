@@ -35,8 +35,9 @@ function hcache(cx, cy) {
   for (let j = 0; j < HS; j++) for (let i = 0; i < HS; i++) { const v = M.heightAt(cx * C + i / 4, cy * C + j / 4); a[j * HS + i] = v; if (v > mx) mx = v; }
   h = { a, mx }; HC.set(k, h); return h;
 }
+let hcK = NaN, hcA = null; // last chunk looked up (most calls hit the same one)
 export function hR(x, y) {
-  const cx = Math.floor(x / C), cy = Math.floor(y / C), h = hcache(cx, cy).a, fx = (x - cx * C) * 4, fy = (y - cy * C) * 4, i = Math.min(HS - 2, Math.floor(fx)), j = Math.min(HS - 2, Math.floor(fy)), tx = fx - i, ty = fy - j, o = j * HS + i;
+  const cx = Math.floor(x / C), cy = Math.floor(y / C), key = cx * 100003 + cy; if (key !== hcK) { hcA = hcache(cx, cy).a; hcK = key; } const h = hcA, fx = (x - cx * C) * 4, fy = (y - cy * C) * 4, i = Math.min(HS - 2, Math.floor(fx)), j = Math.min(HS - 2, Math.floor(fy)), tx = fx - i, ty = fy - j, o = j * HS + i;
   return (h[o] * (1 - tx) + h[o + 1] * tx) * (1 - ty) + (h[o + HS] * (1 - tx) + h[o + HS + 1] * tx) * ty;
 }
 const gyH = (x, y) => sy(x, y) - hR(x, y);
@@ -45,6 +46,9 @@ function rayHit(gx, gy, tmax) {
   const a = (gx + .5) / 8, b = (gy + .5) / 4, x0 = (a + b) / 2, y0 = (b - a) / 2;
   let t = tmax; while (t > 0 && 8 * t > hR(x0 + t, y0 + t)) t -= .125;
   if (t < 0) t = 0;
+  return rayFinish(x0, y0, t, tmax);
+}
+function rayFinish(x0, y0, t, tmax) {
   let lo = t, hi = Math.min(tmax, t + .125);
   if (hi > lo) for (let q = 0; q < 5; q++) { const m = (lo + hi) / 2; if (8 * m <= hR(x0 + m, y0 + m)) lo = m; else hi = m; }
   const x = x0 + lo, y = y0 + lo, z = 8 * lo, h = hR(x, y);
@@ -93,7 +97,7 @@ function pix(ch, gx, gy, P, x, y, face, z) {
   }
   const ht = z;
   if (ov && ov.k === "f") { let c = h < .33 ? [146, 138, 124] : h < .66 ? [170, 160, 142] : [124, 116, 104]; if (h2 < .1) c = [196, 188, 170]; if (P.snow && h2 < .5) c = P.g[2]; return c; }
-  if (M.isRoad(x, y)) { const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1, edge = Math.min(fx, fy, 1 - fx, 1 - fy); if (edge > .06 || M.isRoad(x + (fx < .5 ? -1 : 1), y) || M.isRoad(x, y + (fy < .5 ? -1 : 1))) { let c = h < .3 ? [140, 128, 108] : h < .7 ? [162, 150, 128] : [122, 110, 94]; if (h2 < .08) c = [196, 186, 164]; if (P.snow && h2 < .7) c = P.g[1]; return c; } }
+  const rl = M.isRoad(x, y); if (rl) { const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1, edge = Math.min(fx, fy, 1 - fx, 1 - fy); if (edge > .06 || M.isRoad(x + (fx < .5 ? -1 : 1), y) || M.isRoad(x, y + (fy < .5 ? -1 : 1))) { if (rl === 2 && !P.snow) { const u = x * 3.2 + (Math.floor(y * 3.2) & 1) * .5, v = y * 3.2, gu = u - Math.floor(u), gv = v - Math.floor(v); if (gu < .14 || gv < .16) return [96, 90, 82]; const r = M.ih(Math.floor(u) * 13 + 7, Math.floor(v) * 11 + 3), q = 150 + r * 34 - (gu > .8 || gv > .8 ? 18 : 0); return [q, q * .96, q * .9]; } let c = h < .3 ? [140, 128, 108] : h < .7 ? [162, 150, 128] : [122, 110, 94]; if (h2 < .08) c = [196, 186, 164]; if (P.snow && h2 < .7) c = P.g[1]; return c; } }
   if (lk > .7) { const dp = M.clamp((lk - .7) / .08, 0, 1); let c = P.water[dp > .5 ? 0 : 1]; if (h2 < .06) c = P.water[2]; if (!P.snow && ((((x * 3 + y * 2) % 1) + 1) % 1 < .08)) c = P.water[2]; return c; }
   if (g.rv[k] < 2.2) { // the stream and its pebbly banks
     if (M.isRiver(x, y)) { let c = P.snow ? [176, 200, 216] : [70, 128, 160]; if (h2 < .1 || (((x + y * 1.7) * 2.5) % 1 + 1) % 1 < .12) c = P.snow ? [214, 228, 238] : [130, 180, 200]; return c; }
@@ -140,30 +144,80 @@ function paintRect(ch, pxa, pya, pxb, pyb) {
   const w = pxb - pxa, h = pyb - pya; if (w <= 0 || h <= 0) return;
   const P = PAL[season], ctx = ch.gc.getContext("2d"), img = ctx.getImageData(pxa, pya, w, h), d = img.data;
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const q = (pya + j) * CW + pxa + i, f = ch.hf[q]; if (!f) continue; const pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8; const c = pix(ch, X0 + pxa + i, Y0 + pya + j, P, x, y, f, ch.hz[q]); const o = (j * w + i) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255; }
-  ctx.putImageData(img, pxa, pya); ch.ovDirty = true;
+  ctx.putImageData(img, pxa, pya); ch.ovG = (ch.ovG || 0) + 1;
 }
-function hitMap(ch) {
-  chunkMargin(ch); const Hh = CH + ch.hm, [X0, Y0] = chunkOrigin(ch), n = CW * Hh, tmax = ch.hmax / 8 + .05;
-  const hp = new Uint16Array(n), hf = new Uint8Array(n), hz = new Uint8Array(n);
-  for (let py = 0; py < Hh; py++) for (let px = 0; px < CW; px++) {
-    const r = rayHit(X0 + px, Y0 + py, tmax); if (Math.floor(r.x / C) !== ch.cx || Math.floor(r.y / C) !== ch.cy) continue;
-    const q = py * CW + px; hf[q] = r.face; hz[q] = Math.min(255, Math.round(r.z)); hp[q] = (Math.min(255, Math.floor((r.y - ch.y0) * 8)) << 8) | Math.min(255, Math.floor((r.x - ch.x0) * 8));
+// Baking a chunk's ground is expensive (a ray-march + a colour per pixel), so it runs as a resumable job:
+// a few rows per frame within a time budget, never freezing the view.
+function bakeSome(ch, until) {
+  let j = ch.job;
+  if (!j) {
+    samples(ch); chunkMargin(ch);
+    j = ch.job = { st: ch.hf ? 1 : 0, py: 0, n: CW * (CH + ch.hm) };
+    if (!ch.hf) { j.hp = new Uint16Array(j.n); j.hf = new Uint8Array(j.n); j.hz = new Uint8Array(j.n); }
   }
-  ch.hp = hp; ch.hf = hf; ch.hz = hz;
+  const Hh = CH + ch.hm, [X0, Y0] = chunkOrigin(ch);
+  if (j.st === 0) {
+    // Every pixel of one screen column looks along the same line on the ground, shifted by 1/8 tile per row.
+    // So terrain heights along that line are sampled once per column and the ray march only reads the array.
+    const MT = Math.ceil((ch.hmax / 8 + .05) * 8), tmax = MT / 8, L = Hh + MT + 1;
+    if (!j.col) { j.col = new Float32Array(CW * L); j.px = 0; }
+    while (j.px < CW) {
+      const px = j.px++, a = (X0 + px + .5) / 8, b = (Y0 + .5) / 4, x0 = (a + b) / 2, y0 = (b - a) / 2, o = px * L;
+      for (let k = 0; k < L; k++) j.col[o + k] = hR(x0 + k * .125, y0 + k * .125);
+      if ((px & 15) === 15 && performance.now() > until) return false;
+    }
+    while (j.py < Hh) {
+      const py = j.py++;
+      for (let px = 0; px < CW; px++) {
+        const o = px * L + py; let m = MT; while (m > 0 && m > j.col[o + m]) m--;
+        const a = (X0 + px + .5) / 8, b = (Y0 + py + .5) / 4;
+        const r = rayFinish((a + b) / 2, (b - a) / 2, m / 8, tmax); if (Math.floor(r.x / C) !== ch.cx || Math.floor(r.y / C) !== ch.cy) continue;
+        const q = py * CW + px; j.hf[q] = r.face; j.hz[q] = Math.min(255, Math.round(r.z)); j.hp[q] = (Math.min(255, Math.floor((r.y - ch.y0) * 8)) << 8) | Math.min(255, Math.floor((r.x - ch.x0) * 8));
+      }
+      if ((py & 3) === 3 && performance.now() > until) return false;
+    }
+    ch.hp = j.hp; ch.hf = j.hf; ch.hz = j.hz; j.hp = j.hf = j.hz = j.col = null; j.st = 1; j.py = 0;
+  }
+  if (j.st === 1) {
+    if (!ch.hf) { ch.job = null; return false; }
+    if (!j.img) { j.img = new ImageData(CW, Hh); j.wp = []; j.season = season; }
+    if (j.season !== season) { j.img = new ImageData(CW, Hh); j.wp = []; j.season = season; j.py = 0; }
+    const P = PAL[season], d = j.img.data;
+    while (j.py < Hh) {
+      const py = j.py++;
+      for (let px = 0; px < CW; px++) {
+        const q = py * CW + px, f = ch.hf[q]; if (!f) continue; const pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8;
+        const c = pix(ch, X0 + px, Y0 + py, P, x, y, f, ch.hz[q]); const o = q * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+        if ((c === P.water[0] || c === P.water[1]) && (px * 7 + py * 13) % 5 === 0) j.wp.push(px, py);
+      }
+      if ((py & 3) === 3 && performance.now() > until) return false;
+    }
+    if (!ch.gc) { ch.gc = document.createElement("canvas"); ch.gc.width = CW; ch.gc.height = Hh; }
+    const ctx = ch.gc.getContext("2d"); ctx.putImageData(j.img, 0, 0); ch.waterPx = j.wp; ch.bakedSeason = season; ch.ovG = (ch.ovG || 0) + 1;
+    details(ch, ctx, P);
+    paintFog(ch, 0, 0, CW, Hh);
+    ch.job = null; return true;
+  }
+  ch.job = null; return true;
 }
-function bake(ch) {
-  samples(ch); if (!ch.hf) hitMap(ch);
-  const Hh = CH + ch.hm;
-  if (!ch.gc) { ch.gc = document.createElement("canvas"); ch.gc.width = CW; ch.gc.height = Hh; }
-  const [X0, Y0] = chunkOrigin(ch), P = PAL[season], ctx = ch.gc.getContext("2d"), img = ctx.createImageData(CW, Hh), d = img.data, wp = [];
-  for (let py = 0; py < Hh; py++) for (let px = 0; px < CW; px++) {
-    const q = py * CW + px, f = ch.hf[q]; if (!f) continue; const pos = ch.hp[q], x = ch.x0 + ((pos & 255) + .5) / 8, y = ch.y0 + ((pos >> 8) + .5) / 8;
-    const c = pix(ch, X0 + px, Y0 + py, P, x, y, f, ch.hz[q]); const o = q * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
-    if ((c === P.water[0] || c === P.water[1]) && (px * 7 + py * 13) % 5 === 0) wp.push(px, py);
+function bake(ch) { bakeSome(ch, Infinity); }
+// Quick 1/4-resolution version of a chunk's ground (1/16 of the work). Shown while the full one is still baking,
+// and used as is for the far-out overview. Hidden tiles stay transparent.
+function quickSome(ch, until) {
+  let j = ch.qj;
+  if (!j || j.season !== season) { samples(ch); chunkMargin(ch); const w = CW / 4, h = Math.ceil((CH + ch.hm) / 4); j = ch.qj = { py: 0, w, h, img: new ImageData(w, h), season }; }
+  const [X0, Y0] = chunkOrigin(ch), P = PAL[season], d = j.img.data, tmax = ch.hmax / 8 + .05;
+  while (j.py < j.h) {
+    const py = j.py++;
+    for (let px = 0; px < j.w; px++) {
+      const gx = X0 + px * 4 + 2, gy = Y0 + py * 4 + 2, r = rayHit(gx, gy, tmax);
+      if (Math.floor(r.x / C) !== ch.cx || Math.floor(r.y / C) !== ch.cy || M.hidden(W, r.x, r.y)) continue;
+      const c = pix(ch, gx, gy, P, r.x, r.y, r.face, Math.min(255, Math.round(r.z))), o = (py * j.w + px) * 4; d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+    }
+    if (performance.now() > until) return false;
   }
-  ctx.putImageData(img, 0, 0); ch.waterPx = wp; ch.bakedSeason = season; ch.ovDirty = true;
-  details(ch, ctx, P);
-  paintFog(ch, 0, 0, CW, Hh);
+  if (!ch.lq || ch.lq.height !== j.h) { ch.lq = document.createElement("canvas"); ch.lq.width = j.w; ch.lq.height = j.h; }
+  ch.lq.getContext("2d").putImageData(j.img, 0, 0); ch.lqSeason = season; ch.qj = null; ch.ovG = (ch.ovG || 0) + 1; return true;
 }
 function details(ch, ctx, P) {
   const [X0, Y0] = chunkOrigin(ch);
@@ -195,7 +249,7 @@ function paintFog(ch, pxa, pya, pxb, pyb) {
     const po = (((gy & 127) * FP) + (gx & 127)) * 3, o = (j * w + i) * 4, e = f < .68 ? 18 : 0;
     d[o] = fogPat[po] + e; d[o + 1] = fogPat[po + 1] + e; d[o + 2] = fogPat[po + 2] + e; d[o + 3] = 255;
   }
-  ctx.clearRect(pxa, pya, w, h); ctx.putImageData(img, pxa, pya); ch.ovDirty = true;
+  ctx.clearRect(pxa, pya, w, h); ctx.putImageData(img, pxa, pya); ch.ovG = (ch.ovG || 0) + 1;
   if (!ch.fog.some(v => v)) {
     let n = true; for (let j = -1; j <= 1 && n; j++) for (let i = -1; i <= 1; i++) { const q = W.chunks.get(M.ckey(ch.cx + i, ch.cy + j)); if (!q || q.fog.some(v => v)) { n = false; break; } }
     if (n) { ch.fc = null; ch.fogClear = true; }
@@ -215,7 +269,7 @@ export function setWorld(nw, old) {
   if (prev && prev !== nw) {
     for (const ch of nw.chunks.values()) {
       const o = prev.chunks.get(ch.k); if (!o || !o.gc) continue;
-      ch.gc = o.gc; ch.fc = o.fc; ch.ov = o.ov; ch.g = o.g; ch.waterPx = o.waterPx; ch.bakedSeason = o.bakedSeason; ch.fogClear = o.fogClear; ch.ovDirty = true; ch.hm = o.hm; ch.hmax = o.hmax; ch.hp = o.hp; ch.hf = o.hf; ch.hz = o.hz;
+      ch.gc = o.gc; ch.fc = o.fc; ch.ov2 = o.ov2; ch.ov4 = o.ov4; ch.g = o.g; ch.waterPx = o.waterPx; ch.bakedSeason = o.bakedSeason; ch.fogClear = o.fogClear; ch.ovG = (ch.ovG || 0) + 1; ch.hm = o.hm; ch.hmax = o.hmax; ch.hp = o.hp; ch.hf = o.hf; ch.hz = o.hz;
       // repaint what differs
       for (let k = 0; k < C4 * C4; k++) if (((o.wear[k] / WK * 14) | 0) !== ((ch.wear[k] / WK * 14) | 0)) nw.dirtyGround.push(ch, k);
       let fd = false; for (let k = 0; k < C * C; k++) if (o.fog[k] !== ch.fog[k]) { fd = true; break; }
@@ -236,7 +290,7 @@ function consume() {
     else if (e.k === "road") for (const k of e.tiles) { const [x, y] = k.split(":").map(Number); repaintWorldRect(x - .6, y - .6, x + 1.6, y + 1.6); }
     else if (e.k === "over") {
       for (let cy = Math.floor((e.y0 - 1) / C); cy <= Math.floor((e.y1 + 1) / C); cy++) for (let cx = Math.floor((e.x0 - 1) / C); cx <= Math.floor((e.x1 + 1) / C); cx++) {
-        HC.delete(cx + "," + cy); const ch = W.chunks.get(M.ckey(cx, cy)); if (ch) { ch.g = null; ch.hf = null; ch.hm = undefined; ch.bakedSeason = null; ch.gc = null; ch.fc = null; ch.ov = null; }
+        HC.delete(cx + "," + cy); hcK = NaN; const ch = W.chunks.get(M.ckey(cx, cy)); if (ch) { ch.g = null; ch.hf = null; ch.hm = undefined; ch.job = null; ch.qj = null; ch.lq = null; ch.lqSeason = null; ch.bakedSeason = null; ch.gc = null; ch.fc = null; ch.ov2 = null; ch.ov4 = null; }
       }
     }
     else if (e.k === "bell") { floats.push({ x: e.b.x + 3.4, y: e.b.y + .9, t: "ding dong", c: "#f0c860", a: 0 }); }
@@ -244,24 +298,30 @@ function consume() {
 }
 // ---------- overview tiles (1/4 scale) ----------
 let _ovt = null; function ovTmp(w, h) { if (!_ovt || _ovt.width !== w || _ovt.height < h) { _ovt = document.createElement("canvas"); _ovt.width = w; _ovt.height = h + 8; } return _ovt; }
-function buildOverview(ch) {
-  if (!ch.ov) { ch.ov = document.createElement("canvas"); ch.ov.width = CW / 4; ch.ov.height = Math.ceil((CH + ch.hm) / 4) + OVM; }
-  const c = ch.ov.getContext("2d"), [X0, Y0] = chunkOrigin(ch);
-  c.clearRect(0, 0, ch.ov.width, ch.ov.height); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
-  if (ch.gc) c.drawImage(ch.gc, 0, OVM, CW / 4, (CH + ch.hm) / 4);
+function buildOverview(ch, f) {
+  // simplified pre-rendered tile (1/f resolution) used when zoomed out: ground + trees + rocks + buildings, fog on top
+  const key = "ov" + f, m = OVM * 4 / f; let o = ch[key];
+  if (!o) { o = ch[key] = document.createElement("canvas"); o.width = CW / f; o.height = Math.ceil((CH + ch.hm) / f) + m; }
+  const c = o.getContext("2d"), [X0, Y0] = chunkOrigin(ch);
+  c.clearRect(0, 0, o.width, o.height); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
+  const full = ch.gc && ch.bakedSeason === season;
+  if (full) c.drawImage(ch.gc, 0, m, CW / f, (CH + ch.hm) / f); else if (ch.lq) { c.imageSmoothingEnabled = f > 2; c.drawImage(ch.lq, 0, m, CW / f, ch.lq.height * 4 / f); c.imageSmoothingEnabled = true; }
   const ents = [];
-  for (const t of ch.trees) { if (M.hidden(W, t.x, t.y)) continue; const a = t.felled ? null : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y]); }
-  for (const r of ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y]);
-  ents.sort((a, b) => a[0] - b[0]);
-  for (const [, s, x, y] of ents) { const px = (sx(x, y) - X0 - s.ax) / 4, py = (gyH(x, y) - Y0 - s.ay) / 4 + OVM; c.drawImage(s.canvas, px, py, s.w / 4, s.h / 4); }
-  for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; c.drawImage(s.canvas, (sx(b.x, b.y) - X0 - s.ax) / 4, (sy(b.x, b.y) - bH(b) - Y0 - s.ay) / 4 + OVM, s.w / 4, s.h / 4); }
-  if (ch.fc) { const t = ovTmp(ch.ov.width, ch.ov.height), tc = t.getContext("2d"); tc.clearRect(0, 0, t.width, t.height); tc.imageSmoothingEnabled = true; tc.drawImage(ch.fc, 0, OVM, CW / 4, (CH + ch.hm) / 4); tc.globalCompositeOperation = "source-atop"; tc.fillStyle = "rgb(31,39,42)"; tc.fillRect(0, 0, t.width, t.height); tc.globalCompositeOperation = "source-over"; c.drawImage(t, 0, 0); }
-  ch.ovDirty = false; ch.ovAt = performance.now();
+  for (const t of ch.trees) { if (t.gone || M.hidden(W, t.x, t.y)) continue; const a = t.felled ? (t.sapling ? SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + 1] : t.cleared ? null : SP.stump) : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y, 0]); }
+  for (const r of ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, 0]);
+  for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; ents.push([b.x + b.y + b.a / 2 + b.b / 2, s, b.x, b.y, 1, b]); }
+  ents.sort((a, b) => a[0] - b[0]); c.imageSmoothingQuality = "low";
+  for (const [, s, x, y, isB, b] of ents) {
+    const px = (sx(x, y) - X0 - s.ax) / f, py = ((isB ? sy(x, y) - bH(b) : gyH(x, y)) - Y0 - s.ay) / f + m;
+    c.drawImage(s.canvas, px, py, s.w / f, s.h / f);
+  }
+  if (full && ch.fc) { const t = ovTmp(o.width, o.height), tc = t.getContext("2d"); tc.clearRect(0, 0, t.width, t.height); tc.imageSmoothingEnabled = true; tc.drawImage(ch.fc, 0, m, CW / f, (CH + ch.hm) / f); tc.globalCompositeOperation = "source-atop"; tc.fillStyle = "rgb(31,39,42)"; tc.fillRect(0, 0, t.width, t.height); tc.globalCompositeOperation = "source-over"; c.drawImage(t, 0, 0); }
+  ch[key + "G"] = ch.ovG || 0; ch[key + "At"] = performance.now();
 }
 // ---------- sprites for things ----------
 function treeSprite(t) { if (t.t === "dwarf") return SP.dwarf[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
 const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
-function bSprite(b) { const B = SP.bld; if (b.type === "apiary") return B.skeps; if (b.type === "fold") return B.shed; if (B[b.type]) return B[b.type]; if (b.type === "camp") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
+function bSprite(b) { const B = SP.bld; if (b.type === "apiary") return B.skeps; if (b.type === "fold") return B.shed; if (B[b.type]) return B[b.type]; if (b.type === "camp" || b.type === "outpost") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
 export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, sel: 0, hourOverride: null, seasonOverride: null, weatherOverride: null };
 let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
@@ -277,18 +337,19 @@ function tint(h) { for (let i = 0; i < STOPS.length - 1; i++) { const a = STOPS[
 export function nightOf(h) { const t = tint(h); return M.clamp((1 - (t[0] + t[1] + t[2]) / 765) / .45, 0, 1); }
 const rain = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), s: .7 + Math.random() * .6 }));
 function px(c, x, y, w, h, col, a) { c.fillStyle = col; if (a !== undefined) c.globalAlpha = a; c.fillRect(x, y, w, h); if (a !== undefined) c.globalAlpha = 1; }
+export function screenOf(x, y) { const Z = view.zoom; return [(sx(x, y) - vx0) * Z, (gyH(x, y) - vy0) * Z]; }
 export function frame(now, rdt) {
   T = now / 1000; if (!W) return;
   const S = W.S, clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month);
   if (sea !== season || !SP) setSeason(sea);
   consume(); W.events.length = 0;
-  const Z = view.zoom, over = Z < .5;
+  const Z = view.zoom, over = Z < 1, OF = Z < .5 ? 4 : 2;
   vx0 = Math.round(view.cam.x - Vw / k / 2); vy0 = Math.round(view.cam.y - Vh / k / 2);
   const VWa = Vw / k, VHa = Vh / k;
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
   const pat = fogPattern(ctx); pat.setTransform(new DOMMatrix([k, 0, 0, k, -vx0 * k % (FP * k), -vy0 * k % (FP * k)]));
   ctx.fillStyle = over ? "rgb(31,39,42)" : pat; ctx.fillRect(0, 0, Vw, Vh);
-  ctx.setTransform(k, 0, 0, k, 0, 0); ctx.imageSmoothingEnabled = k < 1; ctx.imageSmoothingQuality = "high";
+  ctx.setTransform(k, 0, 0, k, 0, 0); ctx.imageSmoothingEnabled = k < 1; ctx.imageSmoothingQuality = over ? "low" : "high";
   // visible tile range
   const inv = (gx, gy) => { const a = gx / 8, b = gy / 4; return [(a + b) / 2, (b - a) / 2]; };
   const cs = [inv(vx0, vy0), inv(vx0 + VWa, vy0), inv(vx0, vy0 + VHa), inv(vx0 + VWa, vy0 + VHa + 60)];
@@ -298,17 +359,27 @@ export function frame(now, rdt) {
     const ch = W.chunks.get(M.ckey(cx, cy)); if (!ch) continue; const [X0, Y0] = chunkOrigin(ch);
     chunkMargin(ch); if (X0 - vx0 > VWa || Y0 - vy0 > VHa + 40 || X0 + CW - vx0 < 0 || Y0 + CH + ch.hm - vy0 < -OVM * 4) continue; vis.push(ch);
   }
-  let baked = 0;
-  for (const ch of vis) if (ch.bakedSeason !== season && baked < (over ? 6 : 2)) { bake(ch); baked++; }
+  // bake on a time budget so zooming out never freezes the frame
+  const tb = performance.now(), budget = (view.warm && tb < view.warm) ? 40 : over ? 8 : 10;
+  vis.sort((a, b) => Math.hypot(chunkOrigin(a)[0] + CW / 2 - view.cam.x, chunkOrigin(a)[1] + CH / 2 - view.cam.y) - Math.hypot(chunkOrigin(b)[0] + CW / 2 - view.cam.x, chunkOrigin(b)[1] + CH / 2 - view.cam.y));
+  for (const ch of vis) { ch.allFog = ch.fog.every(v => v); }
+  for (const ch of vis) { if (performance.now() - tb > budget) break; if (ch.bakedSeason !== season && ch.lqSeason !== season && !ch.allFog) quickSome(ch, tb + budget); }
+  if (Z >= .5) for (const ch of vis) { if (performance.now() - tb > budget) break; if (ch.bakedSeason !== season && !ch.allFog) bakeSome(ch, tb + budget); }
   hits = [];
   if (over) {
-    let ob = 0;
-    for (const ch of vis) { if (!ch.gc || ch.bakedSeason !== season) continue; if ((!ch.ov || ch.ovDirty) && ob < 4 && (!ch.ov || performance.now() - (ch.ovAt || 0) > 1500)) { buildOverview(ch); ob++; } }
+    const key = "ov" + OF;
+    for (const ch of vis) { if (performance.now() - tb > budget + 4) break; if (!(ch.gc && ch.bakedSeason === season) && !(ch.lq && ch.lqSeason === season)) continue; const o = ch[key]; if (!o || (ch[key + "G"] !== (ch.ovG || 0) && performance.now() - (ch[key + "At"] || 0) > 1500)) buildOverview(ch, OF); }
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
-    for (const ch of vis) if (ch.ov && !ch.fog.every(v => v)) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.ov, X0 - vx0, Y0 - vy0 - OVM * 4, CW, ch.ov.height * 4); }
-    ctx.fillStyle = "#f4e6c0"; for (const p of S.people) if (!p.asleep && !p.inside) ctx.fillRect(Math.round(sx(p.x, p.y) - vx0 - 2), Math.round(gyH(p.x, p.y) - vy0 - 6), 4, 6);
+    const m = OVM * 4;
+    for (const ch of vis) {
+      if (ch.allFog) continue; const [X0, Y0] = chunkOrigin(ch), o = ch[key] || ch["ov" + (OF === 4 ? 2 : 4)];
+      if (o) { const f = o === ch.ov2 ? 2 : 4; ctx.drawImage(o, X0 - vx0, Y0 - vy0 - m, CW, o.height * f); }
+      else if (ch.lq) { ctx.drawImage(ch.lq, X0 - vx0, Y0 - vy0, CW, ch.lq.height * 4); }
+    }
+    const ps = Z < .5 ? [4, 6] : [3, 5];
+    for (const p of S.people) if (!p.asleep && !p.inside) { const x = Math.round(sx(p.x, p.y) - vx0 - ps[0] / 2), y = Math.round(gyH(p.x, p.y) - vy0 - ps[1]); ctx.fillStyle = "#3a2a1c"; ctx.fillRect(x - 1, y - 1, ps[0] + 2, ps[1] + 2); ctx.fillStyle = p.pioneer || p.state === "pioneer" ? "#ffd27a" : "#f4e6c0"; ctx.fillRect(x, y, ps[0], ps[1]); }
   } else {
-    for (const ch of vis) if (ch.gc) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.gc, X0 - vx0, Y0 - vy0); }
+    for (const ch of vis) { if (ch.allFog) continue; const [X0, Y0] = chunkOrigin(ch); if (ch.gc && (ch.bakedSeason === season || !ch.lq)) ctx.drawImage(ch.gc, X0 - vx0, Y0 - vy0); else if (ch.lq) { const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false; ctx.drawImage(ch.lq, X0 - vx0, Y0 - vy0, CW, ch.lq.height * 4); ctx.imageSmoothingEnabled = sm; } }
     if (k >= 1) { ctx.fillStyle = rgb(PAL[season].water[2]); const ph = Math.floor(T * 2); for (const ch of vis) { const wp = ch.waterPx; if (!wp || !wp.length) continue; const [X0, Y0] = chunkOrigin(ch), n = wp.length / 2; for (let i = 0; i < Math.min(12, n / 30); i++) { const q = ((ph * 7919 + i * 104729 + ch.cx * 31) % n) * 2; ctx.fillRect(X0 + wp[q] - vx0, Y0 + wp[q + 1] - vy0, 2, 1); } } }
     for (const ch of vis) if (ch.fc) { const [X0, Y0] = chunkOrigin(ch); ctx.drawImage(ch.fc, X0 - vx0, Y0 - vy0); }
     drawEntities(vis, hour, VWa, VHa);
@@ -322,7 +393,7 @@ export function frame(now, rdt) {
   const wk = view.weatherOverride || S.weather.kind;
   let tn = tint(hour); if (wk !== "clear") tn = tn.map(v => v * (wk === "cloudy" || wk === "fog" ? .9 : .84));
   ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = rgb(tn); ctx.fillRect(0, 0, Vw, Vh); ctx.globalCompositeOperation = "source-over";
-  const n = nightOf(hour); if (n > .2 && !over) drawGlow(n, hour);
+  const n = nightOf(hour); if (n > .2 && Z >= .5) drawGlow(n, hour);
   if (wk === "fog") { ctx.fillStyle = "rgba(200,206,210,.18)"; ctx.fillRect(0, 0, Vw, Vh); }
   drawWeather(wk, rdt); ctx.drawImage(vig, 0, 0);
   if (Z >= 2 && !over) drawTexts(rdt);
@@ -337,9 +408,10 @@ function drawEntities(vis, hour, VWa, VHa) {
   for (const ch of vis) {
     for (const t of ch.trees) {
       const x0 = sx(t.x, t.y) - vx0, y0 = gyH(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
+      if (t.gone) continue;
       if (t.felled) {
         if (t.sapling) { const g = M.clamp(1 - (t.regrow || 0) / 1200, 0, .999), s2 = SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + (g > .5 ? 1 : 0)]; spr(ents, s2, t.x, t.y, t.x + t.y, { t: "Young tree", d: "Planted by the forester. Growing." }, VWa, VHa); continue; }
-        if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: "A young tree will grow here again." }, VWa, VHa); continue; }
+        if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: t.cleared ? "Cleared." : "Rots away in time. Only a forester plants new trees." }, VWa, VHa); continue; }
       const a = treeSprite(t), x = x0 - a.ax, y = y0 - a.ay, near = hv && Math.abs(hv.vx - x0) < 12 && hv.vy > y && hv.vy < y0 + 2;
       ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: { oak: "Oak", birch: "Birch", dwarf: "Dwarf pine" }[t.t] || "Spruce", d: t.t === "dwarf" ? "Kosodrevina. Low, tough, smells of resin." : t.logs + " loads of wood left." }] : null });
     }
@@ -353,11 +425,12 @@ function drawEntities(vis, hour, VWa, VHa) {
       if (b.done) { info.d = ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe! Ready to harvest."][b.stage] + " Crop: " + M.CROPS[b.crop].name + (b.auto ? " (villagers' choice)." : " (Mayor's choice)."); if (b.stage >= 1) spr(ents, SP.bld.scarecrow, b.x + .7, b.y + .7, b.x + b.y + 1.4, null, VWa, VHa); }
       const [x0, y0] = [sx(b.x + b.a / 2, b.y + b.b / 2) - vx0, gyH(b.x + b.a / 2, b.y + b.b / 2) - vy0]; hitsPush([x0 - 24, y0 - 10, x0 + 24, y0 + 10, info]); continue;
     }
-    if (b.type === "camp") {
+    if (b.type === "camp" || b.type === "outpost") {
       spr(ents, SP.bld.tent, b.x + .2, b.y - .3, b.x + b.y + 2.6, info, VWa, VHa);
       const f = { x: b.x + 1.6, y: b.y + 2.3 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(gyH(f.x, f.y) - vy0);
       ents.push({ depth: f.x + f.y, draw: () => drawFire(fx, fy, hour), box: [fx - 7, fy - 10, fx + 7, fy + 4, { t: "Firepit", d: "The heart of the village. People gather here at night." }] });
       if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: gyH(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 });
+      if (b.type === "outpost") continue;
       const st = { x: b.x - .7, y: b.y + 2.4 }, inf = { t: "Stockpile", d: "Wood " + R0.wood + " · Stone " + R0.stone + " · Food " + R0.food };
       if (R0.wood > 0) spr(ents, SP.wood[tier(R0.wood)], st.x, st.y, st.x + st.y, inf, VWa, VHa);
       if (R0.stone > 0) spr(ents, SP.stone[tier(R0.stone)], st.x + 1.2, st.y + .9, st.x + st.y + 2.1, inf, VWa, VHa);
@@ -451,6 +524,7 @@ function drawPerson(x, y, p, fr) {
     else if (p.job === "fish") { ctx.fillStyle = "#cfd6d8"; for (let i = 0; i < 5; i++) ctx.fillRect(x + 2 + i, y - 7 + i, 1, 1); }
     else if (p.job === "berries" || p.job === "harvest" || p.job === "sow") px(ctx, x + 2, y - 3 + sw, 2, 2, "#8a5a30");
   }
+  if (p.pack && !p.carry) { px(ctx, x - 3, y - 7 + bob, 3, 3, "#7a5634"); px(ctx, x - 3, y - 7 + bob, 3, 1, "#a07848"); }
   if (p.carry) { const t = p.carry.type; px(ctx, x - 2, y - 8 + bob, 4, 2, t === "wood" ? "#9a6a3a" : t === "stone" ? "#9a9890" : "#b03a30"); px(ctx, x - 2, y - 8 + bob, 4, 1, t === "wood" ? "#c89a60" : t === "stone" ? "#c8c6c0" : "#7050a0"); }
 }
 function drawDog(x, y, d) {
@@ -482,12 +556,12 @@ function drawGlow(n, hour) {
   for (const b of S.b) {
     if (!b.done) continue;
     const z = bH(b);
-    if (b.type === "camp") { const f = { x: b.x + 1.6, y: b.y + 2.3 }; glow(sx(f.x, f.y), gyH(f.x, f.y) - 3, 40 * (1 + Math.sin(T * 7) * .06), .55 * n); if (lit(b, hour)) glow(sx(b.x + 2.8, b.y + 1), sy(b.x + 2.8, b.y + 1) - z - 4, 12, .45 * n); }
+    if (b.type === "camp" || b.type === "outpost") { const f = { x: b.x + 1.6, y: b.y + 2.3 }; glow(sx(f.x, f.y), gyH(f.x, f.y) - 3, 40 * (1 + Math.sin(T * 7) * .06), .55 * n); if (lit(b, hour)) glow(sx(b.x + 2.8, b.y + 1), sy(b.x + 2.8, b.y + 1) - z - 4, 12, .45 * n); }
     else if (b.type === "torch") glow(sx(b.x, b.y), sy(b.x, b.y) - z - 14, 22, .5 * n);
     else if (lit(b, hour)) { const s = bSprite(b); if (s && s.wins) for (const w of s.wins) glow(sx(b.x, b.y) - s.ax + w[0], sy(b.x, b.y) - z - s.ay + w[1], 9, .5 * n); }
   }
   ctx.globalCompositeOperation = "source-over";
-  for (const b of S.b) { if (b.type === "camp" || !lit(b, hour)) continue; const s = bSprite(b); if (!s) continue; const z = bH(b); ctx.fillStyle = "rgba(255,214,120," + n + ")"; for (const w of s.wins) ctx.fillRect(Math.round((sx(b.x, b.y) - s.ax + w[0] - vx0) * k) - 1, Math.round((sy(b.x, b.y) - z - s.ay + w[1] - vy0) * k) - 1, 2, 2); }
+  for (const b of S.b) { if (b.type === "camp" || b.type === "outpost" || !lit(b, hour)) continue; const s = bSprite(b); if (!s) continue; const z = bH(b); ctx.fillStyle = "rgba(255,214,120," + n + ")"; for (const w of s.wins) ctx.fillRect(Math.round((sx(b.x, b.y) - s.ax + w[0] - vx0) * k) - 1, Math.round((sy(b.x, b.y) - z - s.ay + w[1] - vy0) * k) - 1, 2, 2); }
 }
 // a home's windows glow when someone is up inside: in the morning one by one as people wake, in the evening until the last one goes to bed
 function lit(b, hour) {
@@ -566,6 +640,7 @@ function mmColor(x, y) {
   if (h > 30) return [140, 132, 118];
   return P.g[1 + ((M.fdV(x, y) < .55) ? 1 : 0)];
 }
+let mmAt = 0;
 export function minimap(cv2, focusX, focusY) {
   if (!W) return; const S = W.S;
   // window: around everything explored, at least 64 tiles
@@ -577,8 +652,8 @@ export function minimap(cv2, focusX, focusY) {
   const c = cv2.getContext("2d");
   let revealed = 0; for (const ch of W.chunks.values()) for (let i = 0; i < ch.fog.length; i += 7) if (!ch.fog[i]) revealed++;
   const sig = [L, ox, oy, revealed, season, S.b.length, S.b.filter(b => b.done).length].join();
-  if (sig !== mmSig || !mmBase) {
-    mmSig = sig; mmBase = document.createElement("canvas"); mmBase.width = L * 2; mmBase.height = L; const b = mmBase.getContext("2d"), img = b.createImageData(L * 2, L), d = img.data;
+  if (!mmBase || (sig !== mmSig && (performance.now() - mmAt > 6000 || mmBase.width !== L * 2))) {
+    mmSig = sig; mmAt = performance.now(); mmBase = document.createElement("canvas"); mmBase.width = L * 2; mmBase.height = L; const b = mmBase.getContext("2d"), img = b.createImageData(L * 2, L), d = img.data;
     for (let ry = 0; ry < L; ry++) for (let rx = 0; rx < L; rx++) {
       const x = ox + rx, y = oy + ry; if (M.hidden(W, x + .5, y + .5)) continue;
       const col = mmColor(x + .5, y + .5), u = rx - ry + L - 1, v = (rx + ry) >> 1; if (v >= L) continue;
