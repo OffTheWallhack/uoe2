@@ -58,9 +58,9 @@ export const chunkOrigin = ch => [(ch.cx - ch.cy - 1) * C * 8, (ch.cx + ch.cy) *
 function chunkMargin(ch) { if (ch.hm === undefined) { let m = 0; for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) m = Math.max(m, hcache(ch.cx + i, ch.cy + j).mx); ch.hm = Math.ceil(m) + 2; ch.hmax = m; } return ch.hm; }
 function samples(ch) {
   if (ch.g) return ch.g;
-  const lf = new Float32Array(C4 * C4), fd = new Float32Array(C4 * C4), lk = new Float32Array(C4 * C4);
-  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); }
-  return ch.g = { lf, fd, lk };
+  const n = C4 * C4, lf = new Float32Array(n), fd = new Float32Array(n), lk = new Float32Array(n), rv = new Float32Array(n), bi = new Float32Array(n), fl = new Float32Array(n);
+  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); rv[k] = M.isWater(x, y) ? 9 : M.riverD(x, y) - .55; bi[k] = M.birchV(x, y); fl[k] = M.flowerV(x, y); }
+  return ch.g = { lf, fd, lk, rv, bi, fl };
 }
 let W = null, season = "summer", SP = null;
 function fieldPix(b, x, y, gx, gy, P, h, h2) {
@@ -86,6 +86,10 @@ function pix(ch, gx, gy, P, x, y, face, z) {
   }
   const ht = z;
   if (lk > .7) { const dp = M.clamp((lk - .7) / .08, 0, 1); let c = P.water[dp > .5 ? 0 : 1]; if (h2 < .06) c = P.water[2]; if (!P.snow && ((((x * 3 + y * 2) % 1) + 1) % 1 < .08)) c = P.water[2]; return c; }
+  if (g.rv[k] < 2.2) { // the stream and its pebbly banks
+    if (M.isRiver(x, y)) { let c = P.snow ? [176, 200, 216] : [70, 128, 160]; if (h2 < .1 || (((x + y * 1.7) * 2.5) % 1 + 1) % 1 < .12) c = P.snow ? [214, 228, 238] : [130, 180, 200]; return c; }
+    if (g.rv[k] < .9 && !P.snow) { let c = h < .5 ? P.dirt[1] : [150, 142, 128]; if (h2 < .2) c = [178, 172, 160]; return c; }
+  }
   if (lk > .6 && ht < 2.6) { // beach
     if (P.snow) return h2 < .5 ? P.g[2] : P.g[1];
     let c = lk > .675 ? WETSAND[h < .5 ? 0 : 1] : SAND[(h * 2.4) | 0]; if (h2 < .04) c = [236, 232, 220]; if (h2 > .985 && lk < .67) c = [196, 120, 110];
@@ -105,7 +109,16 @@ function pix(ch, gx, gy, P, x, y, face, z) {
   // slope light: ground facing the upper left is brighter
   const sl = (hR(x + .25, y) - hR(x - .25, y)) + (hR(x, y + .25) - hR(x, y - .25));
   let t = lf * 2.1 + h * 1.4 - .35 + M.clamp(sl * .38, -1.6, 1.3); if (fd > .6) t -= .7; if (gx % 2 === gy % 2 && h2 < .5) t += .4; if (w > .18) t -= .6;
+  const bv = g.bi[k], fv = g.fl[k], alp = ht >= 20 && ht < 38;
+  if (bv > .45 && ht < 15) t += .45;                  // birch grove: lighter, sunnier grass
+  if (fv > .45 && ht < 15) t += .3;
   let c = pick(P.g, t); if (h2 < .03) c = P.g[0];
+  if (alp && !P.snow) c = mix(c, [150, 162, 80], .35); // mountain meadow
+  if (!P.snow && w < .15) {
+    if (fv > .45 && ht < 15) { const dens = (fv - .45) * (season === "autumn" ? .25 : season === "spring" ? 1.1 : 1); if (h2 > 1 - dens * .5) { const kind = Math.floor(M.vn(x * 1.3 + 50, y * 1.3, 2.5) * 5) % 4; c = [[214, 58, 48], [80, 110, 220], [244, 242, 230], [240, 206, 64]][kind]; if (M.ih(gx + 1, gy) < .3) c = mix(c, [0, 0, 0], .2); } }
+    else if (alp && h2 > .985) c = h < .5 ? [70, 100, 210] : [240, 240, 232];
+    else if (bv > .45 && ht < 15 && season === "spring" && h2 > .985) c = [246, 246, 236];
+  }
   if (sl < -4.2 && !P.snow) c = mix(c, h < .6 ? mix(P.g[0], [20, 30, 16], .3) : ROCK[0], M.clamp((-sl - 4.2) / 4, 0, .7));
   if (sl < -1 && ((ht + .6) % 6) > 5.2 && h2 < .7) c = mix(c, [0, 0, 0], .18);
   if (ht > 27 && !P.snow) { const r = (ht - 27) / 12 + (h - .5) * .5 + (lf - .5); if (r > .7) c = ROCK[(h2 * 3) | 0]; else if (r > .35 && h2 < .3) c = mix(c, ROCK[1], .55); }
@@ -230,7 +243,7 @@ function buildOverview(ch) {
   ch.ovDirty = false; ch.ovAt = performance.now();
 }
 // ---------- sprites for things ----------
-function treeSprite(t) { const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
+function treeSprite(t) { if (t.t === "dwarf") return SP.dwarf[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
 const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
 function bSprite(b) { const B = SP.bld; if (B[b.type]) return B[b.type]; if (b.type === "camp") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
@@ -310,9 +323,9 @@ function drawEntities(vis, hour, VWa, VHa) {
       const x0 = sx(t.x, t.y) - vx0, y0 = gyH(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
       if (t.felled) { if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: "A young tree will grow here again." }, VWa, VHa); continue; }
       const a = treeSprite(t), x = x0 - a.ax, y = y0 - a.ay, near = hv && Math.abs(hv.vx - x0) < 12 && hv.vy > y && hv.vy < y0 + 2;
-      ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: t.t === "oak" ? "Oak" : t.t === "birch" ? "Birch" : "Spruce", d: t.logs + " loads of wood left." }] : null });
+      ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: { oak: "Oak", birch: "Birch", dwarf: "Dwarf pine" }[t.t] || "Spruce", d: t.t === "dwarf" ? "Kosodrevina. Low, tough, smells of resin." : t.logs + " loads of wood left." }] : null });
     }
-    for (const b of ch.bushes) { if (b.gone || M.hidden(W, b.x, b.y)) continue; const has = b.berries > 0 && P.berry; spr(ents, (has ? SP.bush : SP.bushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Berry bush", d: has ? "Ripe berries to pick." : "No berries right now." }, VWa, VHa); }
+    for (const b of ch.bushes) { if (b.gone || M.hidden(W, b.x, b.y)) continue; if (b.mush) { const has = b.berries > 0 && !P.snow; spr(ents, (has ? SP.mush : SP.mushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Mushrooms", d: has ? "Boletes and chanterelles. Mind the red one." : "Picked clean. More will grow." }, VWa, VHa); continue; } const has = b.berries > 0 && P.berry; spr(ents, (has ? SP.bush : SP.bushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Berry bush", d: has ? "Ripe berries to pick." : "No berries right now." }, VWa, VHa); }
     for (const r of ch.rocks) { if (r.stone <= 0 || M.hidden(W, r.x, r.y)) continue; spr(ents, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, r.x + r.y, { t: r.big ? "Stone outcrop" : "Rock", d: r.stone + " loads of stone left." }, VWa, VHa); }
   }
   const R0 = S.res, tier = v => v >= 300 ? 2 : v >= 60 ? 1 : 0;

@@ -245,13 +245,28 @@ export function buildingSprites(season){
   o.well=wellModel(season);o.tent=tentModel(season);o.rack=rack(season);o.scarecrow=scarecrow(season);o.bench=bench(season);o.torch=torchPost(season);
   return o;
 }
+// ---- dwarf pine (kosodrevina): low, wide, dark ----
+function dwarf(size,v,season){
+  const P=PAL[season],w=Math.round(18*size),h=Math.round(9*size)+2,S=canvasOf(w,h),blobs=[[.3,.55,.32],[.62,.5,.36],[.48,.32,.3],[.8,.62,.22],[.15,.68,.2]];
+  for(let y=0;y<h-2;y++)for(let x=0;x<w;x++){let best=null;for(const b of blobs){const dx=(x/w-b[0])/b[2],dy=(y/(h-2)-b[1])/(b[2]*1.6),dd=dx*dx+dy*dy;if(dd<1&&(!best||dd<best.dd))best={dd,dx,dy}}
+    if(!best)continue;const L=.5-best.dx*.35-best.dy*.5+(ih(x+v*31,y*3)-.5)*.6;let c=P.tree[clamp(Math.round(L*3),0,3)];if((x+y*2)%5===0)c=mul(c,.82);
+    if(P.snow&&best.dy<-.2&&ih(x*3,y+v*7)<.75)c=mix(c,SNOW,.85);put(S.img,w,x,y,c)}
+  for(let x=2;x<w-2;x++)put(S.img,w,x,h-2,[0,0,0],40);
+  const r=finishOutline(S);r.ay=h-3;return r}
+// ---- mushrooms in the birch grove ----
+function mush(season,v,full){const w=10,h=7,S=canvasOf(w,h);
+  if(!full||PAL[season].snow){for(let i=0;i<3;i++)put(S.img,w,2+i*3,5,[200,190,170]);const r=finishOutline(S);r.ay=6;return r}
+  const caps=[[2,3,[150,96,52]],[5,2,[176,40,32]],[7,4,[132,84,46]]];
+  for(const [cx,cy,col] of caps){for(let y=cy+1;y<6;y++)put(S.img,w,cx,y,[232,224,206]);for(let x=cx-1;x<=cx+1;x++)put(S.img,w,x,cy,col);put(S.img,w,cx,cy-1,mix(col,[255,255,255],.25));if(col[0]===176){put(S.img,w,cx-1,cy,[240,240,240]);}}
+  for(let x=1;x<9;x++)put(S.img,w,x,6,[0,0,0],40);
+  const r=finishOutline(S);r.ay=6;return r}
 const cache={};
 export function buildSprites(season){
   if(cache[season])return cache[season];
   const o={wagon:wagonModel(season),tent:tentModel(season),pit:firepit(season),stump:stump(season),
     spruce:[0,1,2].flatMap(v=>[spruce(.8,v,season),spruce(1,v,season),spruce(1.3,v,season)]),
     oak:[0,1,2].flatMap(v=>[oak(.8,v,season),oak(1,v,season),oak(1.25,v,season)]),birch:[0,1].map(v=>oak(.9,v,season,true)),
-    bush:[0,1,2].map(v=>bush(season,v,true)),bushBare:[0,1,2].map(v=>bush(season,v,false)),
+    bush:[0,1,2].map(v=>bush(season,v,true)),bushBare:[0,1,2].map(v=>bush(season,v,false)),dwarf:[0,1,2].flatMap(v=>[dwarf(.8,v,season),dwarf(1,v,season),dwarf(1.25,v,season)]),mush:[0,1,2].map(v=>mush(season,v,true)),mushBare:[0,1,2].map(v=>mush(season,v,false)),
     rock:[0,1,2].map(v=>rock(v,season,false)),bigRock:[0,1,2].map(v=>rock(v,season,true)),
     wood:[1,2,3].map(woodpile),stone:[1,2,3].map(stoneheap),food:[0,1,2].map(baskets),bld:buildingSprites(season)};
   const m=document.createElement("canvas");m.width=o.wagon.w;m.height=o.wagon.h;const mx=m.getContext("2d");mx.translate(m.width,0);mx.scale(-1,1);mx.drawImage(o.wagon.canvas,0,0);

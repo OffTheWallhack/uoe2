@@ -23,16 +23,32 @@ let DX = 1, DY = 0;
 export function elev(x, y) {
   let e = vn(x + 3000, y - 1000, 48) * .5 + vn(x, y, 14) * .3 + vn(x + 77, y + 33, 5) * .2;
   const d = x * DX + y * DY;
-  e += -Math.max(0, d - 20) * .013 + Math.max(0, -d - 24) * .009;
-  e += Math.max(0, 1 - Math.hypot(x, y) / 18) * .14;
-  return e;
+  e += -Math.max(0, d - 20) * .013 + Math.max(0, -d - 18) * .01;
+  const w = clamp(1 - Math.hypot(x, y) / 20, 0, 1), ws = w * w * (3 - 2 * w);
+  return e * (1 - ws) + (SEA + .052) * ws; // the start valley: low, dry and gentle
 }
 export const cliffV = (x, y) => vn(x - 500, y + 800, 18);
+// ---------- biomes ----------
+// The demo world puts one of each biome close to the start; in the full game they come from noise at large scales.
+export const DEMO = true;
+const ax = (x, y) => [x * DX + y * DY, -x * DY + y * DX]; // u: towards the sea, v: across
+export const fromAx = (u, v) => ({ x: u * DX - v * DY, y: u * DY + v * DX });
+const anchor = (x, y, u0, v0, r) => { const [u, v] = ax(x, y); return Math.max(0, 1 - Math.hypot(u - u0, v - v0) / r); };
+// birch grove
+export const birchV = (x, y) => Math.max(vn(x + 9100, y + 300, 22) - .2, DEMO ? anchor(x, y, 4, -17, 11) * 1.1 : 0);
+// flower meadow
+export const flowerV = (x, y) => Math.max(vn(x - 8000, y + 4000, 18) - .22, DEMO ? anchor(x, y, -9, 5, 8) * 1.1 : 0);
+// the stream: from the highlands down to the lake
+export function riverD(x, y) { const [u, v] = ax(x, y); if (u < -70) return 99; const vc = 11 + Math.sin(u * .11) * 3.5 + (vn(u * .4 + 500, 7, 5) - .5) * 5; return Math.abs(v - vc); }
+const riverW = (x, y) => { const u = x * DX + y * DY; return .55 + clamp((u - 4) * .025, 0, .8); };
+export const isRiver = (x, y) => riverD(x, y) < riverW(x, y) && elev(x, y) >= SEA;
+// alpine band: dwarf pine (kosodrevina) and mountain meadow
+export const alpineV = h => h >= 20 && h < 38;
 // ground height in screen pixels (0 = water level). Cliffy areas get sharp terraces.
 export function heightAt(x, y) {
   const e = elev(x, y); if (e < SEA) return 0;
-  const sharp = clamp((cliffV(x, y) - .47) / .18, 0, 1);
-  const v = (e - SEA) * 80 + sharp * 5, q = v / 6, fl = Math.floor(q), f = q - fl, w = .2 - .185 * sharp, s = clamp((f - (.5 - w)) / (2 * w), 0, 1);
+  const sharp = clamp((cliffV(x, y) - .47) / .18, 0, 1) * clamp(Math.hypot(x, y) / 14 - .5, 0, 1);
+  const v = (e - SEA) * 80 + sharp * 5, q = v / 6, fl = Math.floor(q), f = q - fl, w = .5 - .48 * sharp, s = clamp((f - (.5 - w)) / (2 * w), 0, 1);
   return (fl + s * s * (3 - 2 * s)) * 6;
 }
 export const lakeV = (x, y) => .7 + (SEA - elev(x, y)) * 2;
@@ -124,6 +140,21 @@ function genChunk(W, cx, cy) {
     const r = ih(Math.floor(jx * 13) + SX, Math.floor(jy * 11) + SY), v = ih(Math.floor(x * 3) + SY, Math.floor(y * 3)), hz = heightAt(jx, jy), fd = fdV(jx, jy) - (hz > 30 ? (hz - 30) * .03 : 0), rk = rockV(jx, jy) + (hz > 24 ? (hz - 24) * .006 : 0);
     if (steep(jx - .3, jy - .3, jx + .3, jy + .3) || steep(jx + .3, jy - .3, jx - .3, jy + .3)) continue;
     if (rk > .72) { if (r < .14) ch.rocks.push({ x: jx, y: jy, v, big: r < .08, stone: r < .08 ? 6 : 2 }); continue; }
+    if (riverD(jx, jy) < riverW(jx, jy) + .8) continue;
+    if (alpineV(hz)) { // dwarf pine patches, a few spruces, blueberries
+      const dw = vn(jx + 600, jy, 4);
+      if (dw > .6 && r < .6) ch.trees.push({ x: jx, y: jy, t: "dwarf", s: .8 + ih(Math.floor(x), Math.floor(y)) * .5, v, logs: 1, felled: false, regrow: 0, cleared: false });
+      else if (r < .04 && hz < 28) ch.trees.push({ x: jx, y: jy, t: "spruceS", s: .8, v, logs: 3, felled: false, regrow: 0, cleared: false });
+      else if (r > .975) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0 });
+      continue;
+    }
+    const bv = birchV(jx, jy);
+    if (bv > .45 && hz < 15) { // birch grove: light woods with mushrooms
+      if (r < .2 + bv * .15) ch.trees.push({ x: jx, y: jy, t: "birch", s: .8 + ih(Math.floor(x), Math.floor(y)) * .6, v, logs: 2, felled: false, regrow: 0, cleared: false });
+      else if (r > .955) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0, mush: true });
+      continue;
+    }
+    if (flowerV(jx, jy) > .45 && hz < 15) { if (r < .006) ch.trees.push({ x: jx, y: jy, t: "oak", s: 1.1, v, logs: 3, felled: false, regrow: 0, cleared: false }); continue; }
     if (fd > .62 && r < .55) ch.trees.push({ x: jx, y: jy, t: r < .34 ? "spruce" : "spruceS", s: .8 + ih(Math.floor(x), Math.floor(y)) * .6, v, logs: 3, felled: false, regrow: 0, cleared: false });
     else if (fd > .52 && r < .1 && hz < 26) ch.trees.push({ x: jx, y: jy, t: "oak", s: .9 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
     else if (fd < .52 && r < .014 && hz < 26) ch.trees.push({ x: jx, y: jy, t: r < .007 ? "birch" : "oak", s: .8 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
@@ -133,6 +164,8 @@ function genChunk(W, cx, cy) {
   ch.trees.forEach((t, i) => { t.i = i; t._k = ch.k; }); ch.rocks.forEach((t, i) => { t.i = i; t._k = ch.k; }); ch.bushes.forEach((t, i) => { t.i = i; t._k = ch.k; });
   for (let y = ch.y0; y < ch.y0 + C; y++) for (let x = ch.x0; x < ch.x0 + C; x++) {
     if (isWater(x + .5, y + .5)) continue;
+    const rd = riverD(x + .5, y + .5), rw = riverW(x + .5, y + .5);
+    if (rd >= rw && rd < rw + 1.1 && ih(x + SY, y + SX) < .35) { ch.shore.push({ x: x + .5, y: y + .5, i: ch.shore.length, _k: ch.k }); continue; }
     if (isWater(x + 1.5, y + .5) || isWater(x - .5, y + .5) || isWater(x + .5, y + 1.5) || isWater(x + .5, y - .5)) if (ih(x + SX, y) < .5) ch.shore.push({ x: x + .5, y: y + .5, i: ch.shore.length, _k: ch.k });
   }
   for (const p of trail) stampChunk(ch, p.x, p.y, .75, .62);
@@ -191,9 +224,10 @@ export function canPlace(W, type, x, y, mayor) {
     if (hidden(W, i + .5, j + .5)) return "That land is still unexplored.";
     if (isWater(i + .5, j + .5) || lakeV(i + .5, j + .5) > .66) return "Too wet to build here.";
     if (steep(i, j, i + 1, j) || steep(i, j, i, j + 1) || steep(i, j, i + 1, j + 1)) return "Too steep to build here.";
+    if (riverD(i + .5, j + .5) < riverW(i + .5, j + .5) + .6) return "That is the stream.";
     const ch = chunkAt(W, i, j, false); if (ch && ch.rocks.some(r => r.stone > 0 && r.x >= i && r.x < i + 1 && r.y >= j && r.y < j + 1)) return "Rocks are in the way.";
   }
-  if (T.water) { let ok = false; for (let j = y - 2; j < y + T.b + 2 && !ok; j++) for (let i = x - 2; i < x + T.a + 2; i++) if (isWater(i + .5, j + .5)) { ok = true; break; } if (!ok) return "It must stand right by the water."; }
+  if (T.water) { let ok = false; for (let j = y - 2; j < y + T.b + 2 && !ok; j++) for (let i = x - 2; i < x + T.a + 2; i++) if (isWater(i + .5, j + .5) || isRiver(i + .5, j + .5)) { ok = true; break; } if (!ok) return "It must stand right by the water."; }
   if (S.phase !== "settled") return "Settle first.";
   return null;
 }
@@ -362,7 +396,7 @@ function walk(W, p, spd) {
     p.ax = Math.cos(ba); p.ay = Math.sin(ba);
   }
   p.hx += (p.ax - p.hx) * .7; p.hy += (p.ay - p.hy) * .7; const hl = Math.hypot(p.hx, p.hy) || 1;
-  const m = Math.min(d, spd * dt); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
+  const m = Math.min(d, spd * dt * (isRiver(p.x, p.y) ? .55 : 1)); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
   return false;
 }
 function updatePerson(W, p, H) {
@@ -542,7 +576,7 @@ function arrive(W) {
 // ---------- Mayor actions ----------
 export function judgeSettle(W, x, y) {
   if (hidden(W, x, y)) return "That land is still unexplored.";
-  if (lakeV(x, y) > .6) return "Too close to the water.";
+  if (lakeV(x, y) > .6 || riverD(x, y) < 3) return "Too close to the water.";
   for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) if (steep(x + i, y + j, x + i + 1, y + j) || steep(x + i, y + j, x + i, y + j + 1)) return "Too steep. Pick flatter ground.";
   return null;
 }
