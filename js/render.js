@@ -238,7 +238,7 @@ export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, se
 let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
 export function init(canvas) { cv = canvas; ctx = cv.getContext("2d"); }
 export function resize() {
-  const r = cv.parentElement.getBoundingClientRect(); const Z = view.zoom; R = Z >= 1 ? Z : 1; k = Z >= 1 ? 1 : Z;
+  const r = cv.getBoundingClientRect(); const Z = view.zoom; R = Z >= 1 ? Z : 1; k = Z >= 1 ? 1 : Z;
   Vw = Math.max(60, Math.floor(r.width / R)); Vh = Math.max(60, Math.floor(r.height / R)); cv.width = Vw; cv.height = Vh;
   const g = ctx.createRadialGradient(Vw / 2, Vh / 2, Math.min(Vw, Vh) * .3, Vw / 2, Vh / 2, Math.hypot(Vw, Vh) * .58); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.45)");
   vig = document.createElement("canvas"); vig.width = Vw; vig.height = Vh; const x = vig.getContext("2d"); x.fillStyle = g; x.fillRect(0, 0, Vw, Vh);
@@ -476,3 +476,53 @@ export function exploredBounds() {
   return { x0, y0, x1, y1 };
 }
 export function cssSize() { const r = cv.getBoundingClientRect(); return { w: r.width, h: r.height }; }
+// ---------- UI helpers: building thumbnails and the minimap ----------
+export function thumb(type, size = 44) {
+  if (!SP) setSeason(season);
+  const c = document.createElement("canvas"); c.width = size; c.height = size; const x = c.getContext("2d"); x.imageSmoothingEnabled = false;
+  if (type === "field") { x.fillStyle = "#6a4a30"; x.beginPath(); x.moveTo(size / 2, size * .3); x.lineTo(size * .95, size * .55); x.lineTo(size / 2, size * .8); x.lineTo(size * .05, size * .55); x.closePath(); x.fill(); x.strokeStyle = "#d6aa40"; for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(size * (.2 + i * .1), size * (.6 - i * .05)); x.lineTo(size * (.4 + i * .1), size * (.7 - i * .05)); x.stroke(); } return c; }
+  const s = bSprite({ type }); if (!s) return c;
+  const k = Math.max(1, Math.floor(Math.min(size / s.w, size / s.h) * 10) / 10), w = s.w * k, h = s.h * k;
+  x.drawImage(s.canvas, (size - w) / 2, (size - h) / 2 + 2, w, h); return c;
+}
+let mmBase = null, mmSig = "", mmWin = null;
+function mmColor(x, y) {
+  const P = PAL[season], e = M.elev(x, y);
+  if (e < M.SEA) return P.water[e < M.SEA - .03 ? 0 : 1];
+  const h = M.heightAt(x, y), lk = M.lakeV(x, y);
+  if (lk > .6 && h < 2.6) return P.snow ? P.g[2] : [214, 196, 146];
+  if (h > 38) return [238, 243, 250];
+  if (h > 30) return [140, 132, 118];
+  return P.g[1 + ((M.fdV(x, y) < .55) ? 1 : 0)];
+}
+export function minimap(cv2, focusX, focusY) {
+  if (!W) return; const S = W.S;
+  // window: around everything explored, at least 64 tiles
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const ch of W.chunks.values()) for (let j = 0; j < C; j += 2) for (let i = 0; i < C; i += 2) if (!ch.fog[j * C + i]) { const x = ch.x0 + i, y = ch.y0 + j; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+  if (x0 > x1) return;
+  const L = Math.max(48, x1 - x0 + 6, y1 - y0 + 6), ox = Math.floor((x0 + x1) / 2 - L / 2), oy = Math.floor((y0 + y1) / 2 - L / 2);
+  if (cv2.width !== L * 2 || cv2.height !== L) { cv2.width = L * 2; cv2.height = L; mmSig = ""; }
+  const c = cv2.getContext("2d");
+  let revealed = 0; for (const ch of W.chunks.values()) for (let i = 0; i < ch.fog.length; i += 7) if (!ch.fog[i]) revealed++;
+  const sig = [L, ox, oy, revealed, season, S.b.length, S.b.filter(b => b.done).length].join();
+  if (sig !== mmSig || !mmBase) {
+    mmSig = sig; mmBase = document.createElement("canvas"); mmBase.width = L * 2; mmBase.height = L; const b = mmBase.getContext("2d"), img = b.createImageData(L * 2, L), d = img.data;
+    for (let ry = 0; ry < L; ry++) for (let rx = 0; rx < L; rx++) {
+      const x = ox + rx, y = oy + ry; if (M.hidden(W, x + .5, y + .5)) continue;
+      const col = mmColor(x + .5, y + .5), u = rx - ry + L - 1, v = (rx + ry) >> 1; if (v >= L) continue;
+      for (const uu of [u, u + 1]) { const o = (v * L * 2 + uu) * 4; d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255; }
+    }
+    b.putImageData(img, 0, 0);
+    b.fillStyle = "#1c4a1c"; for (const ch of W.chunks.values()) for (const t of ch.trees) { if (t.felled || M.hidden(W, t.x, t.y)) continue; const rx = t.x - ox, ry = t.y - oy; if (rx < 0 || ry < 0 || rx >= L || ry >= L) continue; if ((t.i & 1) === 0) b.fillRect(Math.floor(rx - ry + L - 1), Math.floor((rx + ry) / 2), 1, 1); }
+    for (const bb of S.b) { b.fillStyle = bb.type === "field" ? "#d8b040" : bb.done ? "#f0c860" : "#b08850"; const rx = bb.x - ox, ry = bb.y - oy; for (let j = 0; j < bb.b; j++) for (let i = 0; i < bb.a; i++) b.fillRect(Math.floor(rx + i - ry - j + L - 1), Math.floor((rx + i + ry + j) / 2), 2, 1); }
+  }
+  c.clearRect(0, 0, cv2.width, cv2.height); c.drawImage(mmBase, 0, 0);
+  c.fillStyle = "#ffffff"; for (const p of S.people) { if (p.asleep) continue; const rx = p.x - ox, ry = p.y - oy; c.fillRect(Math.floor(rx - ry + L - 1), Math.floor((rx + ry) / 2), 1, 1); }
+  // camera view
+  const inv = (gx, gy) => { const a = gx / 8, b = gy / 4; return [(a + b) / 2 - ox, (b - a) / 2 - oy]; }, vwA = Vw / k, vhA = Vh / k;
+  const cs = [inv(vx0, vy0), inv(vx0 + vwA, vy0), inv(vx0 + vwA, vy0 + vhA), inv(vx0, vy0 + vhA)].map(([rx, ry]) => [rx - ry + L - 1, (rx + ry) / 2]);
+  c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = 1; c.beginPath(); c.moveTo(cs[0][0], cs[0][1]); for (const q of cs) c.lineTo(q[0], q[1]); c.closePath(); c.stroke();
+  mmWin = { L, ox, oy };
+}
+export function minimapToWorld(u, v) { if (!mmWin) return null; const { L, ox, oy } = mmWin, a = (u - (L - 1)) / 2; return { x: ox + v + a, y: oy + v - a }; }

@@ -4,6 +4,7 @@
 import * as M from "./sim.js";
 import * as G from "./render.js";
 import { CONFIG } from "./config.js";
+import { icon, iconEl } from "./icons.js";
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const LIVE = !!CONFIG.url && !qs.has("sandbox");
@@ -40,63 +41,105 @@ async function doAct(a) {
   catch (e) { say("Could not reach the server. Try again."); }
   busyAct = false; $("busyact").hidden = true;
 }
-function afterAct(a) { if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); } if (a.k === "settle") { view.ghost = null; $("settle").hidden = true; mode = "follow"; } refreshSel(); }
+function afterAct(a) { if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
 function say(t) { toast("", t); }
 // ---------- sandbox persistence ----------
 function saveSandbox() { if (LIVE || !W) return; try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
 function newSandbox(seed) { W = M.createWorld(seed, Date.now()); G.setWorld(W); centerOn(W.S.wagon.x, W.S.wagon.y); renderLog(true); }
 // ---------- UI ----------
-let toasts = [], toastT = 0;
+let toasts = [], toastT = 0, gridMode = "main", gridSig = "", selKey = null;
 function toast(title, txt) { toasts.push({ title, txt }); }
 function banner(t, sub) { const b = $("banner"); b.textContent = ""; if (!t) { b.hidden = true; return; } b.hidden = false; const s = document.createElement("span"); s.textContent = t; b.appendChild(s); if (sub) { const i = document.createElement("i"); i.textContent = sub; b.appendChild(i); } }
 function hhmm(h) { const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0"); }
+const cap1 = s => s[0].toUpperCase() + s.slice(1);
+for (const im of document.querySelectorAll("img[data-ic]")) im.src = icon(im.dataset.ic, 2);
 function renderLog(force) {
-  const S = W.S, ul = $("feed"); if (!force && ul.dataset.n === String(S.log.length) + ":" + (S.log[0] && S.log[0].tk)) return;
-  ul.dataset.n = String(S.log.length) + ":" + (S.log[0] && S.log[0].tk); ul.textContent = "";
-  for (const l of S.log.slice(0, 14)) { const li = document.createElement("li"), b = document.createElement("b"); b.textContent = hhmm(M.clockOf(S, l.tk).hour) + " "; li.append(b, document.createTextNode(l.t)); ul.appendChild(li); }
+  const S = W.S, ul = $("feed"); const sig = String(S.log.length) + ":" + (S.log[0] && S.log[0].tk); if (!force && ul.dataset.n === sig) return;
+  ul.dataset.n = sig; ul.textContent = "";
+  for (const l of S.log.slice(0, 40)) { const li = document.createElement("li"), b = document.createElement("b"); b.textContent = hhmm(M.clockOf(S, l.tk).hour); li.append(b, document.createTextNode(l.t)); ul.appendChild(li); }
 }
 function ui() {
   const S = W.S, cap = M.capOf(W), beds = M.bedsTotal(W);
   $("rfood").textContent = S.res.food; $("rwood").textContent = S.res.wood; $("rstone").textContent = S.res.stone; $("rpop").textContent = S.people.length + (S.phase === "settled" ? "/" + beds : "");
-  $("cap").textContent = "/" + cap; $("food").classList.toggle("low", S.hungry);
+  $("cap").textContent = cap; $("food").classList.toggle("low", S.hungry);
   const clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month), wk = view.weatherOverride || S.weather.kind;
-  $("hud").textContent = hhmm(hour) + " · " + sea[0].toUpperCase() + sea.slice(1) + " · " + wk[0].toUpperCase() + wk.slice(1) + (S.weather.temp != null && !view.weatherOverride ? " " + Math.round(S.weather.temp) + "°C" : "") + (speed > 1 ? " · ×" + speed : "");
+  $("hud").textContent = cap1(sea) + " · " + hhmm(hour) + " · " + cap1(wk) + (S.weather.temp != null && !view.weatherOverride ? " " + Math.round(S.weather.temp) + "°C" : "") + (speed > 1 ? " · ×" + speed : "") + (LIVE ? (OWNER ? " · Mayor" : " · Watching") : " · Test world");
   $("zl").textContent = (view.zoom >= 1 ? view.zoom : view.zoom.toFixed(2).replace(/0$/, "")) + "×";
-  const settled = S.phase === "settled";
-  $("rally").hidden = !(OWNER && settled); $("buildbtn").hidden = !(OWNER && settled);
-  $("actions").hidden = !!buildType || !$("settle").hidden;
   if (S.phase === "choose") { if (OWNER) { if (!view.ghost) banner("Your wagon has arrived. Tap a spot to settle."); } else banner("The settlers are waiting for the Mayor to choose a place."); }
   else if (S.phase === "travel") banner("The wagon is on its way…");
   else if (buildType) banner("Place: " + M.TYPES[buildType].name, view.ghost ? (view.ghost.ok ? "Tap Place to confirm, or tap elsewhere." : view.ghost.why) : "Tap where it should stand.");
   else if (S.rally) { const r = M.rallyStr(S); banner("All hands: " + S.rally.type + "!", r >= 1 ? "Everyone who can is helping." : "The rush is calming down…"); }
   else banner(null);
-  for (const b of document.querySelectorAll("#rally button")) b.classList.toggle("on", !!S.rally && S.rally.type === b.dataset.r);
   toastT -= .25; if (toastT <= 0) { const tb = $("toast"); if (toasts.length) { const t = toasts.shift(); tb.textContent = ""; if (t.title) { const b = document.createElement("b"); b.textContent = t.title; tb.appendChild(b); } const s = document.createElement("span"); s.textContent = t.txt; tb.appendChild(s); tb.hidden = false; tb.classList.remove("in"); void tb.offsetWidth; tb.classList.add("in"); toastT = 4; } else tb.hidden = true; }
-  renderLog(false); refreshSel(true);
-  if (!$("buildmenu").hidden) fillBuildMenu();
+  renderLog(false); fillGrid(); fillSel();
 }
-function fillBuildMenu() {
-  const S = W.S, box = $("blist"); const sig = JSON.stringify([S.res, S.ms]); if (box.dataset.sig === sig) return; box.dataset.sig = sig; box.textContent = "";
-  for (const t of M.BUILD_MENU) {
-    const T = M.TYPES[t], locked = T.unlock && !S.ms[T.unlock], cost = Object.entries(T.cost).map(([k, v]) => v + " " + k).join(", "), afford = Object.entries(T.cost).every(([k, v]) => S.res[k] >= v * .5);
-    const b = document.createElement("button"); b.className = "bitem" + (locked ? " locked" : "") + (buildType === t ? " on" : ""); b.disabled = locked;
-    const n = document.createElement("b"); n.textContent = T.name; const c = document.createElement("small"); c.textContent = locked ? M.UNLOCK_TEXT[T.unlock] : cost + (T.beds ? " · " + T.beds + " beds" : "") + (afford ? "" : " · villagers will gather it");
-    b.append(n, c); b.addEventListener("click", () => { buildType = t; view.ghost = null; $("buildmenu").hidden = true; showPlace(true); }); box.appendChild(b);
+// ---- command buttons (AoE-style grid) ----
+function cbtn(label, ic, on, fn, opt = {}) {
+  const b = document.createElement("button"); b.className = "cb" + (opt.on ? " on" : "") + (opt.locked ? " locked" : ""); b.title = opt.title || label; b.setAttribute("aria-label", opt.title || label);
+  if (ic instanceof HTMLCanvasElement) b.appendChild(ic); else b.appendChild(iconEl(ic, 2));
+  const s = document.createElement("span"); s.textContent = label; b.appendChild(s);
+  if (opt.locked) { const l = iconEl("lock", 1); l.classList.add("lk"); b.appendChild(l); }
+  b.addEventListener("click", e => { e.stopPropagation(); if (!opt.locked) fn(); else toast("", opt.title); }); return b;
+}
+const thumbs = {};
+function fillGrid() {
+  const S = W.S, g = $("grid"), settled = S.phase === "settled";
+  const sig = [gridMode, OWNER, settled, buildType, S.rally && S.rally.type, JSON.stringify(S.ms)].join("|"); if (sig === gridSig) return; gridSig = sig; g.textContent = "";
+  if (!OWNER) { const p = document.createElement("p"); p.className = "meta"; p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = "You are watching. Only the Mayor can give orders."; g.appendChild(p); return; }
+  if (!settled) { const p = document.createElement("p"); p.style.cssText = "grid-column:1/-1;margin:4px;font-size:12px;color:var(--muted)"; p.textContent = S.phase === "choose" ? "Tap the land to pick where your people settle." : "On the way…"; g.appendChild(p); return; }
+  if (gridMode === "main") {
+    g.appendChild(cbtn("Build", "build", 0, () => { gridMode = "build"; gridSig = ""; }));
+    for (const [t, ic, lab] of [["wood", "axe", "Wood"], ["food", "basket", "Food"], ["stone", "pick", "Stone"], ["build", "flag", "Builders"]])
+      g.appendChild(cbtn(lab, ic, 0, () => doAct({ k: "rally", type: t }), { on: S.rally && S.rally.type === t, title: "Rally: all hands on " + t }));
+  } else {
+    g.appendChild(cbtn("Back", "back", 0, () => { gridMode = "main"; buildType = null; view.ghost = null; showPlace(false); gridSig = ""; }));
+    for (const t of M.BUILD_MENU) {
+      const T = M.TYPES[t], locked = T.unlock && !S.ms[T.unlock]; if (!thumbs[t]) thumbs[t] = G.thumb(t, 44);
+      const cost = Object.entries(T.cost).map(([k, v]) => v + " " + k).join(", ");
+      const short = { pit: "Pit", hut: "Hut", store: "Store", wcut: "Wood", forage: "Forage", fisher: "Fish", quarry: "Quarry", field: "Field", well: "Well", torch: "Torch", bench: "Bench" }[t];
+      const c = document.createElement("canvas"); c.width = 44; c.height = 44; c.getContext("2d").drawImage(thumbs[t], 0, 0);
+      g.appendChild(cbtn(short, c, 0, () => { buildType = t; view.ghost = null; showPlace(true); gridSig = ""; selId = 0; selKey = null; }, { on: buildType === t, locked, title: locked ? M.UNLOCK_TEXT[T.unlock] : T.name + " · " + cost }));
+    }
   }
 }
-function showPlace(on) { $("placebar").hidden = !on; $("placebtn").disabled = !(view.ghost && view.ghost.ok); }
-function refreshSel(soft) {
-  const p = $("sel"); const b = selId && W.S.b.find(q => q.id === selId);
-  if (!b || !OWNER) { p.hidden = true; return; }
-  const T = M.TYPES[b.type], sig = [b.id, b.done, b.stage, b.crop, Math.round((b.prog || 0) * 20)].join(); if (soft && p.dataset.sig === sig) return; p.dataset.sig = sig;
-  p.hidden = false; p.textContent = "";
-  const h = document.createElement("b"); h.textContent = T.name; const d = document.createElement("p");
-  d.textContent = b.done ? (b.type === "field" ? ["Plowed, waiting to be sown.", "Sown.", "Growing.", "Ripe, ready to harvest."][b.stage] + " " + (b.auto ? "The villagers picked the crop." : "You picked the crop.") : T.d) : "Being built: " + Math.round(b.prog * 100) + "%. " + (b.by === "mayor" ? "Your order." : "The villagers' own idea.");
-  p.append(h, d);
-  if (b.type === "field") { const row = document.createElement("div"); row.className = "crops"; for (const c in M.CROPS) { const bt = document.createElement("button"); bt.textContent = M.CROPS[c].name; if (b.crop === c && !b.auto) bt.className = "on"; bt.addEventListener("click", () => doAct({ k: "crop", id: b.id, crop: c })); row.appendChild(bt); } p.appendChild(row); const n = document.createElement("small"); n.textContent = "The new crop is sown after the next harvest."; p.appendChild(n); }
-  if (!b.done) { const bt = document.createElement("button"); bt.className = "cancel"; bt.textContent = "Cancel construction"; bt.addEventListener("click", () => { doAct({ k: "cancel", id: b.id }); selId = 0; }); p.appendChild(bt); }
-  const x = document.createElement("button"); x.className = "close"; x.textContent = "×"; x.setAttribute("aria-label", "Close"); x.addEventListener("click", () => { selId = 0; p.hidden = true; }); p.appendChild(x);
+// ---- selection info (left well) ----
+let selInfo = null;
+function fillSel() {
+  const S = W.S, box = $("sel"); let key, build;
+  const b = selId && S.b.find(q => q.id === selId);
+  if (buildType) { const T = M.TYPES[buildType]; key = "bt" + buildType + JSON.stringify(S.res); build = () => { h3(box, T.name); para(box, T.d); para(box, "Costs " + (Object.entries(T.cost).map(([k, v]) => v + " " + k).join(", ") || "nothing") + (T.beds ? " · " + T.beds + " beds" : "") + ". Villagers fetch what is missing.", "meta"); }; }
+  else if (b) {
+    const T = M.TYPES[b.type]; key = ["b", b.id, b.done, b.stage, b.crop, b.auto, Math.round((b.prog || 0) * 50)].join();
+    build = () => {
+      h3(box, T.name);
+      if (!b.done) { para(box, "Being built · " + Math.round(b.prog * 100) + "% · " + (b.by === "mayor" ? "your order" : "the villagers' own idea"), "meta"); const bar = document.createElement("div"); bar.className = "bar"; const i = document.createElement("i"); i.style.width = Math.round(b.prog * 100) + "%"; bar.appendChild(i); box.appendChild(bar); }
+      else if (b.type === "field") para(box, ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe, ready to harvest."][b.stage] + " " + M.CROPS[b.crop].name + (b.auto ? " (their choice)." : " (your choice)."));
+      else para(box, T.d);
+      if (OWNER) {
+        const row = document.createElement("div"); row.className = "row";
+        if (b.type === "field") for (const c in M.CROPS) { const bt = document.createElement("button"); bt.className = "btn" + (b.crop === c && !b.auto ? " on" : ""); bt.textContent = M.CROPS[c].name; bt.addEventListener("click", () => doAct({ k: "crop", id: b.id, crop: c })); row.appendChild(bt); }
+        if (!b.done) { const bt = document.createElement("button"); bt.className = "btn"; bt.textContent = "Cancel building"; bt.addEventListener("click", () => { doAct({ k: "cancel", id: b.id }); selId = 0; }); row.appendChild(bt); }
+        if (row.childNodes.length) box.appendChild(row);
+      }
+    };
+  } else if (selInfo) { key = "i" + selInfo.t + selInfo.d; build = () => { h3(box, selInfo.t); para(box, selInfo.d); }; }
+  else {
+    const n = S.people.length, by = {}; for (const p of S.people) by[p.role] = (by[p.role] || 0) + 1;
+    key = ["v", n, S.phase, JSON.stringify(by), S.b.filter(q => !q.done).length].join();
+    build = () => {
+      h3(box, S.phase === "settled" ? "Your village" : "The settlers");
+      if (S.phase !== "settled") { para(box, "Five settlers, an ox, a dog and a wagon full of tools."); return; }
+      const sites = S.b.filter(q => !q.done).length, names = { wood: "wood", food: "food", stone: "stone", build: "builders", scout: "scouts" };
+      para(box, n + " villagers · " + Object.entries(by).map(([k, v]) => v + " " + (names[k] || k)).join(" · ") + (sites ? " · " + sites + " building site" + (sites > 1 ? "s" : "") : ""), "meta");
+      para(box, "Tap a building or a villager to see more.", "meta");
+    };
+  }
+  if (key === selKey) return; selKey = key; box.textContent = ""; build();
 }
+function h3(box, t) { const h = document.createElement("h3"); h.textContent = t; box.appendChild(h); }
+function para(box, t, cls) { const p = document.createElement("p"); if (cls) p.className = cls; p.textContent = t; box.appendChild(p); }
+function showPlace(on) { $("placebar").hidden = !on; $("placebtn").disabled = !(view.ghost && view.ghost.ok); }
+function refreshSel() { selKey = null; }
 // ---------- camera & zoom ----------
 function centerOn(x, y) { view.cam.x = G.sx(x, y); view.cam.y = G.sy(x, y) - 10; }
 function setZoom(z) { view.zoom = z; G.resize(); }
@@ -112,35 +155,49 @@ function showTip(info, cx, cy) { if (!info) { tip.hidden = true; return; } tip.t
 cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; down = null; } else down = { x: e.clientX, y: e.clientY, moved: false }; });
 cv.addEventListener("pointermove", e => {
   const p = ptrs.get(e.pointerId);
-  if (!p) { const w = G.toWorld(e.clientX, e.clientY); view.hover = { vx: w.vx, vy: w.vy }; showTip(G.hitAt(w.vx, w.vy), e.clientX, e.clientY); return; }
+  if (!p) { if (e.pointerType === "mouse") { const w = G.toWorld(e.clientX, e.clientY); view.hover = { vx: w.vx, vy: w.vy }; showTip(G.hitAt(w.vx, w.vy), e.clientX, e.clientY); } return; }
   if (pinch && ptrs.size === 2) { p.x = e.clientX; p.y = e.clientY; const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (d / pinch.d > 1.35) { zoomStep(1); pinch.d = d; } else if (d / pinch.d < .74) { zoomStep(-1); pinch.d = d; } return; }
-  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) { down.moved = true; cv.classList.add("drag"); tip.hidden = true; mode = null; }
+  if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) { down.moved = true; cv.classList.add("drag"); tip.hidden = true; mode = null; }
   if (down && down.moved) { const k = G.artPerCss(); view.cam.x -= (e.clientX - p.x) * k; view.cam.y -= (e.clientY - p.y) * k; }
   p.x = e.clientX; p.y = e.clientY;
 });
-cv.addEventListener("pointerup", e => {
-  ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; cv.classList.remove("drag");
-  if (down && !down.moved) tap(e.clientX, e.clientY); down = null;
-});
+cv.addEventListener("pointerup", e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; cv.classList.remove("drag"); if (down && !down.moved) tap(e.clientX, e.clientY); down = null; });
 cv.addEventListener("pointercancel", e => { ptrs.delete(e.pointerId); down = null; pinch = null; });
 cv.addEventListener("pointerleave", () => { view.hover = null; if (!ptrs.size) tip.hidden = true; });
 cv.addEventListener("wheel", e => { e.preventDefault(); zoomStep(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+// no browser zoom, no double-tap zoom, no text selection: we are in a game
+for (const ev of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
+document.addEventListener("dblclick", e => e.preventDefault(), { passive: false });
+let lastTouchEnd = 0; document.addEventListener("touchend", e => { const now = Date.now(); if (now - lastTouchEnd < 350) e.preventDefault(); lastTouchEnd = now; }, { passive: false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1 || !e.target.closest(".sheet,.sel,.grid")) e.preventDefault(); }, { passive: false });
+addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) { e.preventDefault(); zoomStep(e.key === "-" ? -1 : 1); } });
 function tap(cx, cy) {
   const w = G.toWorld(cx, cy), S = W.S;
-  if (OWNER && S.phase === "choose") { const why = M.judgeSettle(W, w.x, w.y); view.ghost = { kind: "settle", x: w.x, y: w.y, ok: !why }; banner(why || "A good place. Settle here?", why ? "Pick another spot." : "Trees nearby will be cleared."); $("settle").hidden = !!why; return; }
+  if (OWNER && S.phase === "choose") { const why = M.judgeSettle(W, w.x, w.y); view.ghost = { kind: "settle", x: w.x, y: w.y, ok: !why }; banner(why || "A good place. Settle here?", why ? "Pick another spot." : "Trees nearby will be cleared."); $("settlebar").hidden = !!why; return; }
   if (OWNER && buildType) { const T = M.TYPES[buildType], x = Math.round(w.x - T.a / 2), y = Math.round(w.y - T.b / 2), why = M.canPlace(W, buildType, x, y, true); view.ghost = { kind: "build", type: buildType, x, y, ok: !why, why }; showPlace(true); return; }
-  const info = G.hitAt(w.vx, w.vy);
-  if (OWNER && info && info.b) { selId = info.b; refreshSel(); tip.hidden = true; return; }
-  showTip(info, cx, cy); clearTimeout(tipTimer); tipTimer = setTimeout(() => tip.hidden = true, 3500);
+  const info = G.hitAt(w.vx, w.vy); tip.hidden = true;
+  if (info && info.b) { selId = info.b; selInfo = null; } else { selId = 0; selInfo = info; }
+  selKey = null; fillSel();
 }
+// minimap
+$("mm").addEventListener("pointerdown", e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(), c = e.currentTarget, u = (e.clientX - r.left) / r.width * c.width, v = (e.clientY - r.top) / r.height * c.height, p = G.minimapToWorld(u, v); if (p) { centerOn(p.x, p.y); mode = null; } });
 $("zin").addEventListener("click", () => zoomStep(1)); $("zout").addEventListener("click", () => zoomStep(-1)); $("zworld").addEventListener("click", fitWorld);
 $("settle").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "settle", x: g.x, y: g.y }); });
-for (const b of document.querySelectorAll("#rally button")) b.addEventListener("click", () => doAct({ k: "rally", type: b.dataset.r }));
-$("buildbtn").addEventListener("click", () => { const m = $("buildmenu"); m.hidden = !m.hidden; if (!m.hidden) { $("blist").dataset.sig = ""; fillBuildMenu(); } });
-$("bclose").addEventListener("click", () => $("buildmenu").hidden = true);
 $("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.ok) doAct({ k: "place", type: g.type, x: g.x, y: g.y }); });
-$("placecancel").addEventListener("click", () => { buildType = null; view.ghost = null; showPlace(false); });
+$("placecancel").addEventListener("click", () => { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
 $("center").addEventListener("click", () => { const c = M.camp(W); if (c) centerOn(c.x + 1.5, c.y + 1.5); else centerOn(W.S.wagon.x, W.S.wagon.y); if (view.zoom < 2) setZoom(3); });
+const sheet = id => { for (const s of ["logsheet", "menusheet"]) $(s).hidden = s !== id || !$(s).hidden; };
+$("logbtn").addEventListener("click", () => { sheet("logsheet"); renderLog(true); });
+$("menubtn").addEventListener("click", () => sheet("menusheet"));
+for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => $(b.dataset.close).hidden = true);
+const canFS = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+$("fsbtn").addEventListener("click", () => {
+  const d = document, el = d.documentElement;
+  if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  else if (canFS) (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch?.(() => { $("fshint").hidden = false; });
+  else $("fshint").hidden = false;
+});
+if (!canFS) $("fshint").hidden = false;
 // sandbox controls
 if (!LIVE) {
   $("dev").hidden = false;
@@ -149,9 +206,8 @@ if (!LIVE) {
   $("real").addEventListener("change", e => { if (e.target.checked) view.hourOverride = null; });
   $("season").addEventListener("change", e => view.seasonOverride = e.target.value || null);
   $("weather").addEventListener("change", e => view.weatherOverride = e.target.value || null);
-  $("neww").addEventListener("click", () => { if (!confirmNew()) return; newSandbox((Math.random() * 1e9) | 0); });
+  $("neww").addEventListener("click", () => { newSandbox((Math.random() * 1e9) | 0); gridSig = ""; selKey = null; $("menusheet").hidden = true; });
 }
-function confirmNew() { return true; }
 // ---------- welcome back ----------
 function welcomeBack() {
   let seen = null; try { seen = JSON.parse(localStorage.getItem(seenKey) || "null"); } catch (e) { }
@@ -170,7 +226,7 @@ function welcomeBack() {
 $("wbok").addEventListener("click", () => $("wb").hidden = true);
 function markSeen() { try { const S = W.S; localStorage.setItem(seenKey, JSON.stringify({ seed: S.seed, tick: S.tick, res: S.res, pop: S.people.length })); } catch (e) { } }
 // ---------- main loop ----------
-let last = performance.now(), uiAcc = 0, saveAcc = 0;
+let last = performance.now(), uiAcc = 0, saveAcc = 0, mmAcc = 1;
 function loop(now) {
   requestAnimationFrame(loop);
   const rdt = Math.min(.25, (now - last) / 1000); if (now - last < 30) return; last = now;
@@ -184,6 +240,7 @@ function loop(now) {
   if (mode === "follow") { const wg = W.S.wagon; view.cam.x += (G.sx(wg.x, wg.y) - view.cam.x) * .06; view.cam.y += (G.sy(wg.x, wg.y) - 10 - view.cam.y) * .06; if (W.S.phase === "settled") mode = null; }
   G.frame(now, rdt);
   uiAcc += rdt; if (uiAcc > .25) { uiAcc = 0; ui(); }
+  mmAcc += rdt; if (mmAcc > 1) { mmAcc = 0; G.minimap($("mm")); }
   saveAcc += rdt; if (saveAcc > 15) { saveAcc = 0; saveSandbox(); markSeen(); }
   if (LIVE && Date.now() - lastPoll > 15000) { lastPoll = Date.now(); poll(); }
 }
@@ -192,7 +249,7 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) { sav
 // ---------- start ----------
 async function start() {
   G.init(cv); new ResizeObserver(() => G.resize()).observe($("stage")); G.resize();
-  $("modeline").textContent = LIVE ? (OWNER ? "Live world · you are the Mayor" : "Live world · watching") : "Sandbox · only in this browser";
+
   $("net").hidden = !LIVE;
   try {
     if (LIVE) { await syncFull(true); }
