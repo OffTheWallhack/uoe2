@@ -262,6 +262,8 @@ function fillVillage() {
     const beds = done.reduce((n, b) => n + (M.TYPES[b.type].beds || 0), 0);
     const row = el("div", "vtown"), info = el("div");
     info.append(el("b", null, T.name), el("span", "meta", ppl.length + " villagers · " + beds + " beds · " + done.length + " buildings" + (sites.length ? " · " + sites.length + " being built" : "")));
+    if (T.fx && T.wk) { const gift = el("span", "meta", "✨ Gift of the " + M.WONDERS[T.wk].name + ": " + M.wonderFxTown(T)); gift.style.display = "block"; info.appendChild(gift); }
+    else if (T.why) { const why = el("span", "meta", "Founded " + T.why); why.style.display = "block"; info.appendChild(why); }
     const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(T.x, T.y); $("booksheet").hidden = true; });
     row.append(info, go); box.appendChild(row);
   }

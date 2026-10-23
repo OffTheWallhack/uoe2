@@ -415,7 +415,7 @@ function homeFor(W) {
   // newcomers move into the settlement with the fewest people that still has a free bed
   const S = W.S, used = {}, pop = {}; for (const p of S.people) { used[p.home] = (used[p.home] || 0) + 1; const h = S.b.find(b => b.id === p.home); if (h) pop[h.town] = (pop[h.town] || 0) + 1; }
   let best = 0, bp = 1e9;
-  for (const b of S.b) { const T = TYPES[b.type]; if (b.done && !b.upTo && T.beds && (used[b.id] || 0) < T.beds) { const q = (pop[b.town] || 0) * 100 + (b.town || 1); if (q < bp) { bp = q; best = b.id; } } }
+  for (const b of S.b) { const T = TYPES[b.type]; if (b.done && !b.upTo && T.beds && (used[b.id] || 0) < T.beds && townRes(S, b.town).food >= 12 + (pop[b.town] || 0) * 2) { const bt0 = S.towns.find(t => t.id === b.town), q = (pop[b.town] || 0) * 100 + (b.town || 1) - (bt0 && bt0.fx === "come" ? 350 : 0); if (q < bp) { bp = q; best = b.id; } } }
   return best;
 }
 const an = n => (/^[AEIOU]/.test(n) ? "an " : "a ") + n;
@@ -632,7 +632,7 @@ function walk(W, p, spd) {
 function updatePerson(W, p, H) {
   const S = W.S, cm = camp(W);
   p.moving = false;
-  const ptw0 = S.towns.length ? townOf(W, p) : null, hg = ptw0 ? ptw0.hungry : S.hungry, spd = (hg ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed"));
+  const ptw0 = S.towns.length ? townOf(W, p) : null, hg = ptw0 ? ptw0.hungry : S.hungry, spd = (hg ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed") + townBonus(ptw0, "speed"));
   if (S.phase === "choose") { p.t -= DT; if (p.t < 0) { p.t = 3 + rnd(W) * 5; const a = rnd(W) * 6.3; p.tx = S.wagon.x - 1 + Math.cos(a) * 2; p.ty = S.wagon.y + 1.2 + Math.sin(a) * 1.4; } walk(W, p, .6); return; }
   if (S.phase === "travel") { const q = pathAt(S, S.wagon.d - 1.4 - (p.id % 5) * .9); p.tx = q.x + (p.id % 2 ? .7 : -.7); p.ty = q.y + (p.id % 2 ? -.5 : .5); walk(W, p, 1.6); if (p.moving) addWear(W, p.x, p.y, .012 * DT); return; }
   p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? 7.5 : 3.4); }
@@ -654,9 +654,9 @@ function updatePerson(W, p, H) {
     }
     case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && isSite(s)) { s.prog += DT / TYPES[s.upTo || s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) { if (s.upTo) finishUpgrade(W, s); else finishBuilding(W, s); } } else p.t = 0; }
       if (p.t <= 0) { p.sit = false; finishWork(W, p); } break;
-    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { addRes(W, townOf(W, p), p.carry.type, boosted(S, p.carry.type, p.carry.amt)); } p.carry = null; p.state = "idle"; p.t = .3; } break;
+    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { { const dt0 = townOf(W, p); addRes(W, dt0, p.carry.type, boosted(S, p.carry.type, p.carry.amt, dt0)); } } p.carry = null; p.state = "idle"; p.t = .3; } break;
     case "toStore": if (walk(W, p, spd * .9)) {
-      const gn = boosted(S, p.carry.type, p.carry.amt), ptw = townOf(W, p); addRes(W, ptw, p.carry.type, gn); W.events.push({ k: "gain", type: p.carry.type, amt: gn, x: p.x, y: p.y });
+      const ptw = townOf(W, p), gn = boosted(S, p.carry.type, p.carry.amt, ptw); addRes(W, ptw, p.carry.type, gn); W.events.push({ k: "gain", type: p.carry.type, amt: gn, x: p.x, y: p.y });
       if (p.carry.mill) { const m = S.b.find(b => b.id === p.carry.mill); if (m) m.grind = S.tick + 480; }
       p.carry = null; p.state = "idle"; p.t = .6 + rnd(W) * 1.5 * (1 - rallyStr(S)); p.act = "Back home";
       if (resOf(S, ptw).wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
@@ -674,7 +674,7 @@ function updatePerson(W, p, H) {
     case "patrol": if (!nightWatch(p, H)) { p.state = "idle"; think(W, p, H); break; } if (p.t > 0) { p.t -= DT; break; } if (walk(W, p, spd * .7)) { p.t = 4 + rnd(W) * 10; nextRound(W, p); } break;
     case "church": if (H >= 10.6 || H < 9) { p.inside = false; p.state = "idle"; p.t = rnd(W) * 2; } break;
   }
-  if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
+  if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT * (p.trade ? 2.5 : 1)); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
 }
 function finishWork(W, p) {
   const S = W.S, j = p.job, o = deref(W, p.obj); p.obj = null;
@@ -715,19 +715,31 @@ function finishBuilding(W, s) {
   if (beds) { let cnt = 0; for (const p of S.people) if (cnt < beds && (!p.home || (cm && p.home === cm.id))) { p.home = s.id; cnt++; } }
 }
 // ---------- village planner: the villagers decide what to build ----------
-function findSite(W, type, ax, ay, rmin, rmax) {
-  const T = TYPES[type]; let best = null;
+// Where do the villagers build? Not wherever it is closest: houses and workplaces keep two free tiles around them (lanes for
+// walking and carrying), the square around the village hall stays open, and paved roads are never built over.
+const OPEN_SQUARE = new Set(["well", "tavern", "chapel", "bench", "torch", "apiary", "tower", "camp", "outpost"]);
+function findSite(W, type, ax, ay, rmin, rmax, again) {
+  const T = TYPES[type], S = W.S; let best = null;
+  const tw = S.towns.length ? townAt(S, ax, ay) : null, hall = tw && hallOf(W, tw), hc = hall ? center(hall) : null;
+  const gap = T.deco || T.field ? 0 : 1; // extra free tiles on top of the one that canPlace already demands
   for (let r = rmin; r <= rmax; r += 1) {
     const n = Math.max(8, Math.round(r * 3));
     for (let k = 0; k < n; k++) {
       const a = k / n * Math.PI * 2 + r * .37, x = Math.round(ax + Math.cos(a) * r - T.a / 2), y = Math.round(ay + Math.sin(a) * r - T.b / 2);
+      if (hc && !OPEN_SQUARE.has(type) && Math.hypot(x + T.a / 2 - hc.x, y + T.b / 2 - hc.y) < 5.5) continue;
       if (canPlace(W, type, x, y, false)) continue;
+      let blocked = false;
+      for (let j = y - 1 - gap; j < y + T.b + 1 + gap && !blocked; j++) for (let i = x - 1 - gap; i < x + T.a + 1 + gap; i++) if (W.occ.has(tkey(i, j)) && !(TYPES[W.occ.get(tkey(i, j))?.type]?.field && type === "field")) { blocked = true; break; }
+      if (blocked) continue;
+      if (!T.deco) for (let j = y; j < y + T.b && !blocked; j++) for (let i = x; i < x + T.a; i++) if (ROAD.get(i + ":" + j)) { blocked = true; break; }
+      if (blocked) continue;
       let trees = 0; treesIn(W, x, y, T.a, T.b, t => { if (!t.felled) trees++; });
       const sc = r + trees * .8 + (rnd(W) * .5);
       if (!best || sc < best.sc) best = { x, y, sc };
     }
     if (best && r > rmin + 3) break;
   }
+  if (!best && !again && !T.deco) return findSite(W, type, ax, ay, rmax, rmax + 10, true);
   return best;
 }
 function plan(W) {
@@ -767,6 +779,12 @@ function plan(W) {
     if (bk && bv >= 600) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && resOf(S, richest("wood")).wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; } else if (bk) S.wade[bk] = 0; }
   }
   expeditions(W);
+  // the way between two villages is known: people walk it, so no dark gaps are left between them
+  S.linked = S.linked || {};
+  for (let i = 0; i < S.towns.length; i++) for (let j = i + 1; j < S.towns.length; j++) {
+    const a = S.towns[i], b = S.towns[j], key = a.id + "-" + b.id, d = Math.hypot(a.x - b.x, a.y - b.y); if (S.linked[key] || d > 140) continue;
+    const L = Math.max(1, Math.round(d / 5)); for (let k = 1; k < L; k++) reveal(W, a.x + (b.x - a.x) * k / L, a.y + (b.y - a.y) * k / L, 8); S.linked[key] = 1;
+  }
   for (const t of S.towns) planTown(W, t);
 }
 function planTown(W, T) {
@@ -862,8 +880,9 @@ const FX = { stones: "stone", falls: "food", elder: "wood", ruins: "come", sprin
 const FXPCT = { wood: 6, stone: 6, food: 6, speed: 3, come: 5 }, FXNAME = { wood: "wood from every load", stone: "stone from every load", food: "food from every load", speed: "walking speed", come: "faster newcomers" };
 for (const k in FX) WONDERS[k].fx = FX[k];
 export const wonderFxText = k => { const f = WONDERS[k].fx; return "+" + FXPCT[f] + "% " + FXNAME[f]; };
+export const wonderFxTown = T => T && T.fx ? (T.fx === "speed" ? "+12% walking speed" : T.fx === "come" ? "newcomers who like to settle there" : "+" + WFX_PCT + "% " + FXNAME[T.fx]) : "";
 export function wonderBonus(S, f) { let n = 0; for (const w of S.wonders) if (WONDERS[w.k] && WONDERS[w.k].fx === f) n++; return Math.min(n * FXPCT[f], 40) / 100; }
-function boosted(S, type, amt) { const b = wonderBonus(S, type); if (!b) return amt; const bc = S.bacc || (S.bacc = {}), acc = (bc[type] || 0) + amt * b, ex = Math.floor(acc); bc[type] = acc - ex; return amt + ex; }
+function boosted(S, type, amt, T) { const b = wonderBonus(S, type) + townBonus(T, type); if (!b) return amt; const bc = S.bacc || (S.bacc = {}), acc = (bc[type] || 0) + amt * b, ex = Math.floor(acc); bc[type] = acc - ex; return amt + ex; }
 // ---- THE RULE: every biome has its own wonder, and the Wonder Album is built from this list. ----
 // A new biome in an update must add its wonder to WONDERS (with `biome:` set) and, if it is new, a line in BIOMES.
 export const BIOMES = [
@@ -1084,13 +1103,13 @@ function trekStep(W, p, H) {
 const TREK_TALES = ["% saw deer drinking at a stream.", "The explorers crossed a stream and refilled their water.", "A storm of birds rose from a meadow as the explorers passed.", "% found wild berries and everyone ate well.", "Rain came. The explorers waited under a rock.", "The explorers carved a mark into a tree so they can find the way back."];
 function trekAI(W, H) {
   const S = W.S; if (S.trek || S.exp || S.phase !== "settled" || S.people.length < 9 || resOf(S, homeTown(W)).food < 40 || S.tick < 28800) return;
-  if (H < 5.6 || H > 9.5 || S.tick < (S.trekRetry || 0)) return;
-  if (S.tick - (S.lastTrek || 0) < (S.rumor ? 14400 : 86400)) return;
+  if (H < 5.6 || H > (S.wantLand ? 16 : 9.5) || S.tick < (S.trekRetry || 0)) return;
+  if (S.tick - (S.lastTrek || 0) < (S.rumor ? 14400 : S.wantLand ? 21600 : 86400)) return;
   const h = homeOf(W); let tx, ty;
   if (S.rumor) { tx = S.rumor.x + (rnd(W) - .5) * 8; ty = S.rumor.y + (rnd(W) - .5) * 8; }
   else {
     let best = -1e9;
-    for (let a = 0; a < 24; a++) for (const r of [45, 70, 95, 120]) {
+    for (let a = 0; a < 24; a++) for (const r of (S.wantLand ? [60, 75, 90, 110] : [45, 70, 95, 120])) {
       const ang = a / 24 * 6.283, x = h.x + Math.cos(ang) * r, y = h.y + Math.sin(ang) * r; if (isWater(x, y) || heightAt(x, y) > 34) continue;
       let ok = 0; for (let k = 1; k <= 8; k++) if (!isWater(h.x + Math.cos(ang) * r * k / 8, h.y + Math.sin(ang) * r * k / 8)) ok++; if (ok < 7) continue;
       let hid = 0; for (const [dx, dy] of [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]]) if (hidden(W, x + dx, y + dy)) hid++;
@@ -1430,26 +1449,66 @@ function tradeAI(W, H) {
   }
 }
 // ---------- new settlements: some villagers leave to found a village far away ----------
+// A new settlement needs a reason and a known land. It only goes where the people have already been (the land around it and the way
+// to it are explored), far from the other villages, and either next to a wonder (which then gives that village a gift) or in a
+// place that is rich in timber, stone or fertile land.
+const TOWN_GAP = 55, WONDER_GAP = 36;
+const WFX_PCT = 30; // a village beside a wonder gets +30% of what that wonder gives (or +12% walking speed)
+export const townBonus = (T, f) => (T && T.fx === f) ? (f === "speed" ? .12 : f === "come" ? 0 : WFX_PCT / 100) : 0;
+function exploredFrac(W, x, y, r) {
+  let n = 0, t = 0; const pts = [[0, 0]]; for (let i = 0; i < 6; i++) pts.push([Math.cos(i * 1.047) * r * .5, Math.sin(i * 1.047) * r * .5]); for (let i = 0; i < 8; i++) pts.push([Math.cos(i * .785) * r, Math.sin(i * .785) * r]);
+  for (const [dx, dy] of pts) { t++; if (!hidden(W, x + dx, y + dy)) n++; } return n / t;
+}
+function corridorHidden(W, a, b) {
+  const L = Math.hypot(b.x - a.x, b.y - a.y) || 1, nx = -(b.y - a.y) / L, ny = (b.x - a.x) / L; let h = 0, n = 0;
+  for (let k = 1; k < 12; k++) for (const o of [-4, 0, 4]) { const x = a.x + (b.x - a.x) * k / 12 + nx * o, y = a.y + (b.y - a.y) * k / 12 + ny * o; if (isWater(x, y)) continue; n++; if (hidden(W, x, y)) h++; }
+  return n ? h / n : 0;
+}
+function siteOk(W, x, y) {
+  if (wet(x, y) || isWater(x, y) || heightAt(x, y) > 22 || hidden(W, x, y)) return false;
+  for (let j = -2; j <= 2; j += 2) for (let k = -2; k <= 2; k += 2) if (wet(x + k, y + j) || steep(x + k, y + j, x + k + 1, y + j) || steep(x + k, y + j, x + k, y + j + 1)) return false;
+  return true;
+}
 function townSite(W) {
   const S = W.S; let best = null;
-  for (const t of S.towns) for (const r of [38, 46, 54, 62]) for (let i = 0; i < 24; i++) {
-    const a = i / 24 * Math.PI * 2 + t.id, x = t.x + Math.cos(a) * r, y = t.y + Math.sin(a) * r;
-    if (S.towns.some(q => Math.hypot(q.x - x, q.y - y) < 32)) continue;
-    if (wet(x, y) || isWater(x, y) || heightAt(x, y) > 22) continue;
-    let bad = false; for (let j = -2; j <= 2 && !bad; j += 2) for (let k = -2; k <= 2; k += 2) if (wet(x + k, y + j) || steep(x + k, y + j, x + k + 1, y + j) || steep(x + k, y + j, x + k, y + j + 1)) { bad = true; break; }
-    if (bad) continue;
-    let sc = -(r - 38) * .03, water = false;
-    for (let q = 0; q < 8 && !water; q++) for (let d = 3; d <= 12; d += 3) if (wet(x + Math.cos(q * .785) * d, y + Math.sin(q * .785) * d)) { water = true; break; }
-    if (water) sc += 3;
+  const nearestTown = (x, y) => S.towns.reduce((a, t) => Math.hypot(t.x - x, t.y - y) < Math.hypot(a.x - x, a.y - y) ? t : a, S.towns[0]);
+  const gapOk = (x, y, g) => S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= g);
+  // 1) beside a wonder that no village uses yet
+  for (const w of S.wonders) {
+    if (!WONDERS[w.k] || S.towns.some(t => t.wid === w.id)) continue;
+    for (let i = 0; i < 12; i++) for (const r of [8, 10, 12]) {
+      const a = i / 12 * Math.PI * 2 + (w.x % 7) * .3, x = w.x + Math.cos(a) * r, y = w.y + Math.sin(a) * r;
+      if (!gapOk(x, y, WONDER_GAP) || !siteOk(W, x, y)) continue;
+      const from = nearestTown(x, y), d = Math.hypot(from.x - x, from.y - y); if (d > 190) continue;
+      if (exploredFrac(W, x, y, 8) < .55 || corridorHidden(W, from, { x, y }) > .35) continue;
+      let water = false; for (let q = 0; q < 8 && !water; q++) for (let dd = 3; dd <= 10; dd += 3) if (wet(x + Math.cos(q * .785) * dd, y + Math.sin(q * .785) * dd)) { water = true; break; }
+      const sc = 20 - d / 20 + (water ? 1.5 : 0) - r * .1;
+      if (!best || sc > best.sc) best = { x, y, sc, from, wonder: w, why: "next to " + WONDERS[w.k].name };
+    }
+  }
+  if (best) return best;
+  // 2) a rich place in land the people already know: scan the known land on a grid, cheap tests first
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const t of S.towns) { x0 = Math.min(x0, t.x); x1 = Math.max(x1, t.x); y0 = Math.min(y0, t.y); y1 = Math.max(y1, t.y); }
+  const cands = [];
+  for (let y = Math.floor((y0 - 110) / 8) * 8; y <= y1 + 110; y += 8) for (let x = Math.floor((x0 - 110) / 8) * 8; x <= x1 + 110; x += 8) {
+    const t = nearestTown(x, y), d = Math.hypot(t.x - x, t.y - y); if (d > 112 || !gapOk(x, y, TOWN_GAP) || !siteOk(W, x, y)) continue;
+    if (exploredFrac(W, x, y, 10) < .7 || corridorHidden(W, t, { x, y }) > .25) continue;
+    cands.push({ x, y, t, d });
+  }
+  for (const c of cands) {
+    const { x, y, t, d } = c; let water = false;
+    for (let q = 0; q < 8 && !water; q++) for (let dd = 3; dd <= 12; dd += 3) if (wet(x + Math.cos(q * .785) * dd, y + Math.sin(q * .785) * dd)) { water = true; break; }
+    let tr = 0, rk = 0, bu = 0;
     for (let cy = Math.floor((y - 10) / C); cy <= Math.floor((y + 10) / C); cy++) for (let cx = Math.floor((x - 10) / C); cx <= Math.floor((x + 10) / C); cx++) {
-      const ch = getChunk(W, cx, cy, true); let tr = 0, rk = 0, bu = 0;
+      const ch = getChunk(W, cx, cy, true);
       for (const o of ch.trees) if (Math.abs(o.x - x) < 10 && Math.abs(o.y - y) < 10) tr++;
       for (const o of ch.rocks) if (Math.abs(o.x - x) < 12 && Math.abs(o.y - y) < 12) rk++;
       for (const o of ch.bushes) if (Math.abs(o.x - x) < 10 && Math.abs(o.y - y) < 10) bu++;
-      sc += Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4;
     }
-    if (flowerV(x, y) > .45 || birchV(x, y) > .45) sc += .8;
-    if (!best || sc > best.sc) best = { x, y, sc, from: t };
+    const sc = -(d - 58) * .02 + (water ? 3 : 0) + Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4 + (flowerV(x, y) > .45 || birchV(x, y) > .45 ? .8 : 0);
+    if (sc < 6) continue; // not worth leaving home for
+    const why = rk >= 4 ? "in rocky hills with plenty of stone" : tr >= 24 ? "in a forest full of timber" : water && bu >= 2 ? "on fertile land by the water" : water ? "by the water" : "on good open land";
+    if (!best || sc > best.sc) best = { x, y, sc, from: t, why };
   }
   return best;
 }
@@ -1464,13 +1523,17 @@ function expeditions(W) {
       if (!site) { if (late) { for (const p of mem) { p.state = "idle"; p.pioneer = 0; } S.exp = null; S.lastFound = S.tick; addLog(W, "The pioneers found no good place and came back."); } return; }
       const id = S.towns.length + 1, name = e.name, b = addBuilding(W, "outpost", site.x, site.y, "ai"); b.done = true;
       const src0 = S.towns.find(t => t.name === e.from) || S.towns[0], SR0 = resOf(S, src0), pack = { food: 0, wood: 0, stone: 0 };
-      for (const [k, v] of [["food", 30], ["wood", 24], ["stone", 6]]) { const q = Math.max(0, Math.min(v, Math.floor(SR0[k] * .5))); SR0[k] -= q; pack[k] = q; }
-      S.towns.push({ id, name, hall: b.id, x: b.x + 1.5, y: b.y + 1.5, at: S.tick, coin: 0, hungry: false, res: pack }); b.town = id;
+      for (const [k, v] of [["food", 40], ["wood", 30], ["stone", 10]]) { const q = Math.max(0, Math.min(v, Math.floor(SR0[k] * .5))); SR0[k] -= q; pack[k] = q; }
+      const T2 = { id, name, hall: b.id, x: b.x + 1.5, y: b.y + 1.5, at: S.tick, coin: 0, hungry: false, res: pack, why: e.why || "" };
+      if (e.wid) { const wd = S.wonders.find(q => q.id === e.wid); if (wd && WONDERS[wd.k]) { T2.wid = wd.id; T2.fx = WONDERS[wd.k].fx; T2.wk = wd.k; } }
+      S.towns.push(T2); b.town = id;
       for (const ch of W.chunks.values()) for (const tr of ch.trees) if (!tr.felled && Math.hypot(tr.x - b.x - 1.5, tr.y - b.y - 1.5) < 3.5) { tr.felled = true; tr.cleared = true; ch.ovDirty = true; }
       reveal(W, b.x + 1.5, b.y + 1.5, 12);
+      { const L = Math.max(1, Math.round(Math.hypot(b.x - e.fx, b.y - e.fy) / 5)); for (let k = 1; k < L; k++) reveal(W, e.fx + (b.x - e.fx) * k / L, e.fy + (b.y - e.fy) * k / L, 8); } // the road there is no longer a mystery
+      S.wantLand = 0;
       for (const p of mem) { p.home = b.id; p.state = "idle"; p.pioneer = 0; p.t = 1 + rnd(W) * 2; }
       S.exp = null; S.lastFound = S.tick;
-      addLog(W, "The pioneers founded " + name + ", a new settlement " + Math.round(Math.hypot(b.x - e.fx, b.y - e.fy)) + " steps from " + e.from + ".");
+      addLog(W, "The pioneers founded " + name + (e.why ? " " + e.why : "") + ", " + Math.round(Math.hypot(b.x - e.fx, b.y - e.fy)) + " steps from " + e.from + "." + (T2.fx ? " The village will have " + wonderFxTown(T2) + "." : ""));
       milestone(W, "town2", "A New Settlement", name + " was founded by pioneers. Villagers will walk between the villages and roads will grow.");
       W.events.push({ k: "town", name, x: b.x + 1.5, y: b.y + 1.5 });
     }
@@ -1478,15 +1541,15 @@ function expeditions(W) {
   }
   if (S.phase !== "settled") return;
   // a full storehouse means the village has outgrown its valley: new settlements follow sooner (at least ~2.5 to 5 hours apart)
-  const need = 10 + 5 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0), full = S.towns.some(t => KINDS.filter(k => resOf(S, t)[k] >= capT(W, t) * .8).length >= 2), gap = full ? 36000 : 72000;
+  const need = 12 + 6 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0), full = S.towns.some(t => KINDS.filter(k => resOf(S, t)[k] >= capT(W, t) * .8).length >= 2), gap = full ? 36000 : 72000;
   if (n < need || since < gap || S.towns.length >= 10) return;
-  const site = townSite(W); if (!site) { S.lastFound = S.tick - gap + 12000; return; }
+  const site = townSite(W); if (!site) { S.lastFound = S.tick - gap + 9000; S.wantLand = S.tick; return; } // nothing known is worth it yet: send explorers first
   const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch && !p.trek);
   if (cand.length < 6) return;
   const mem = cand.slice(-3), used = new Set(S.towns.map(t => t.name)), names = TOWN_NAMES.filter(q => !used.has(q)), name = names[(rnd(W) * names.length) | 0] || "Newtown " + (S.towns.length + 1);
-  S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y };
+  S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y, why: site.why, wid: site.wonder ? site.wonder.id : 0 };
   for (const [i, p] of mem.entries()) { p.obj = null; p.carry = null; p.pack = true; p.state = "pioneer"; p.pioneer = 1; p.tx = site.x + (i - 1) * .8; p.ty = site.y + (i % 2) * .6; p.act = "Pioneer: looking for new land"; p.sit = false; p.inside = false; }
-  addLog(W, mem.map(p => p.name).join(", ").replace(/, ([^,]*)$/, " and $1") + " packed their things and set off to find new land.");
+  addLog(W, mem.map(p => p.name).join(", ").replace(/, ([^,]*)$/, " and $1") + " packed their things and set off to settle " + site.why + ".");
   W.events.push({ k: "milestone", title: "Pioneers", txt: "Three villagers set off to found a new settlement." });
 }
 function arrive(W) {
