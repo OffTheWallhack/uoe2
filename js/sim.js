@@ -602,7 +602,7 @@ function walk(W, p, spd) {
 function updatePerson(W, p, H) {
   const S = W.S, cm = camp(W);
   p.moving = false;
-  const spd = (S.hungry ? .8 : 1.1) * (1 + rallyStr(S) * .25);
+  const spd = (S.hungry ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed"));
   if (S.phase === "choose") { p.t -= DT; if (p.t < 0) { p.t = 3 + rnd(W) * 5; const a = rnd(W) * 6.3; p.tx = S.wagon.x - 1 + Math.cos(a) * 2; p.ty = S.wagon.y + 1.2 + Math.sin(a) * 1.4; } walk(W, p, .6); return; }
   if (S.phase === "travel") { const q = pathAt(S, S.wagon.d - 1.4 - (p.id % 5) * .9); p.tx = q.x + (p.id % 2 ? .7 : -.7); p.ty = q.y + (p.id % 2 ? -.5 : .5); walk(W, p, 1.6); if (p.moving) addWear(W, p.x, p.y, .012 * DT); return; }
   p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? 7.5 : 3.4); }
@@ -623,9 +623,9 @@ function updatePerson(W, p, H) {
     }
     case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && isSite(s)) { s.prog += DT / TYPES[s.upTo || s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) { if (s.upTo) finishUpgrade(W, s); else finishBuilding(W, s); } } else p.t = 0; }
       if (p.t <= 0) { p.sit = false; finishWork(W, p); } break;
-    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { S.res[p.carry.type] += p.carry.amt; } p.carry = null; p.state = "idle"; p.t = .3; } break;
+    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { S.res[p.carry.type] += boosted(S, p.carry.type, p.carry.amt); } p.carry = null; p.state = "idle"; p.t = .3; } break;
     case "toStore": if (walk(W, p, spd * .9)) {
-      S.res[p.carry.type] = Math.min(capOf(W), S.res[p.carry.type] + p.carry.amt); W.events.push({ k: "gain", type: p.carry.type, amt: p.carry.amt, x: p.x, y: p.y });
+      const gn = boosted(S, p.carry.type, p.carry.amt); S.res[p.carry.type] = Math.min(capOf(W), S.res[p.carry.type] + gn); W.events.push({ k: "gain", type: p.carry.type, amt: gn, x: p.x, y: p.y });
       if (p.carry.mill) { const m = S.b.find(b => b.id === p.carry.mill); if (m) m.grind = S.tick + 480; }
       p.carry = null; p.state = "idle"; p.t = .6 + rnd(W) * 1.5 * (1 - rallyStr(S)); p.act = "Back home";
       if (S.res.wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
@@ -820,6 +820,13 @@ export const WONDERS = {
   goldtree:   { name: "The Golden Tree", d: "A tree taller than a church, every leaf pure gold. The leaves fall like slow rain and never run out.", rumor: "a tree with leaves of gold", cr: 8, big: [(x, y) => groveV(x, y) > 0, .3, .9], ok: (x, y, h) => groveV(x, y) > 0 && dry(x, y) && flat(x, y) && h < 30 },
 };
 for (const k of ["stones", "falls", "elder", "ruins", "spring", "crystal", "bones", "fairy", "shrine", "obelisk", "lighthouse", "arch"]) WONDERS[k].cr = WONDERS[k].cr || 5;
+// what each wonder gives the village once it is found (stacks per wonder, capped)
+const FX = { stones: "stone", falls: "food", elder: "wood", ruins: "come", spring: "speed", crystal: "stone", bones: "stone", fairy: "food", shrine: "come", obelisk: "come", lighthouse: "food", arch: "speed", pyramid: "stone", tisland: "food", wtemple: "wood", swamphut: "food", icespires: "stone", goldtree: "wood" };
+const FXPCT = { wood: 6, stone: 6, food: 6, speed: 3, come: 5 }, FXNAME = { wood: "wood from every load", stone: "stone from every load", food: "food from every load", speed: "walking speed", come: "faster newcomers" };
+for (const k in FX) WONDERS[k].fx = FX[k];
+export const wonderFxText = k => { const f = WONDERS[k].fx; return "+" + FXPCT[f] + "% " + FXNAME[f]; };
+export function wonderBonus(S, f) { let n = 0; for (const w of S.wonders) if (WONDERS[w.k] && WONDERS[w.k].fx === f) n++; return Math.min(n * FXPCT[f], 40) / 100; }
+function boosted(S, type, amt) { const b = wonderBonus(S, type); if (!b) return amt; const bc = S.bacc || (S.bacc = {}), acc = (bc[type] || 0) + amt * b, ex = Math.floor(acc); bc[type] = acc - ex; return amt + ex; }
 const CLASSIC = Object.keys(WONDERS).slice(0, 12);
 const BIGK = Object.keys(WONDERS).filter(k => WONDERS[k].big);
 // how much of a region (48x48) is covered by a biome: only huge stretches of it can hide a wonder
@@ -857,7 +864,7 @@ const homeOf = W => { const t = W.S.towns[0], h = t ? hallOf(W, t) : camp(W); re
 function foundWonder(W, w, p) {
   const S = W.S, def = WONDERS[w.k]; S.wonders.push({ id: w.id, k: w.k, x: w.x, y: w.y, at: S.tick, by: p.name });
   reveal(W, w.x, w.y, 10); S.renown = S.wonders.length;
-  addLog(W, (p.trek === 1 ? p.name + " and the explorers" : p.boat ? p.name + " and the sailors" : p.name) + " found a wonder: the " + def.name + ". " + def.d);
+  addLog(W, (p.trek === 1 ? p.name + " and the explorers" : p.boat ? p.name + " and the sailors" : p.name) + " found a wonder: the " + def.name + ". " + def.d + " The village gains " + wonderFxText(w.k) + ".");
   W.events.push({ k: "wonder", w, by: p.name });
   const n = S.wonders.length;
   milestone(W, "wonder1", "A Wonder of the World", "Word of the " + def.name + " will travel. Newcomers arrive a little faster.");
@@ -1202,7 +1209,7 @@ export function step(W) {
       if (bedsTotal(W) > n && S.res.food >= 12 + n * 2 && !night(H)) {
         const e = W.trail.find(q => !hidden(W, q.x, q.y)) || { x: 0, y: 0 }, p = newPerson(W, e.x, e.y), cm = camp(W), c = cm ? doorOf(cm) : { x: 0, y: 0 };
         p.state = "arrive"; p.tx = c.x; p.ty = c.y; p.act = "Arriving in the village"; p.home = homeFor(W); p.role = "wood";
-        S.people.push(p); S.arriveT = (900 + n * 240) * (1 - Math.min(.4, (S.renown || 0) * .05));
+        S.people.push(p); S.arriveT = (900 + n * 240) * (1 - Math.min(.5, (S.renown || 0) * .05 + wonderBonus(S, "come")));
         addLog(W, p.name + " (" + p.trait + ") arrived and wants to live here.");
         W.events.push({ k: "arrive", p });
         if (!S.rumor && !S.trek && S.people.length >= 7 && rnd(W) < .35) makeRumor(W);
