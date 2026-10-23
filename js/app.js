@@ -5,6 +5,7 @@ import * as M from "./sim.js";
 import * as G from "./render.js";
 import { CONFIG } from "./config.js";
 import { icon, iconEl } from "./icons.js";
+import * as SND from "./sound.js";
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
 const LIVE = !!CONFIG.url && !qs.has("sandbox");
@@ -12,7 +13,12 @@ let ownerKey = null;
 try { const h = new URLSearchParams(location.hash.slice(1)); if (h.get("owner")) { localStorage.setItem("uoe2-owner", h.get("owner")); history.replaceState(null, "", location.pathname + location.search); } ownerKey = localStorage.getItem("uoe2-owner"); } catch (e) { }
 const OWNER = !LIVE || !!ownerKey;
 let W = null, speed = 1, acc = 0, mode = null, buildType = null, selId = 0, lastFull = 0, lastPoll = 0, busyAct = false, seenKey = LIVE ? "uoe2-seen-live" : "uoe2-seen-sandbox";
-const view = G.view;
+const view = G.view; let envAcc = 0; view.sfx = SND.sfx;
+function soundEnv() {
+  const S = W.S, clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, wk = view.weatherOverride || S.weather.kind, wx = (view.cam.x / 8 + view.cam.y / 4) / 2, wy = (view.cam.y / 4 - view.cam.x / 8) / 2, night = G.nightOf(hour);
+  SND.setEnv({ night, day: 1 - night, rain: wk === "rain" ? 1 : 0, snow: wk === "snow" ? 1 : 0, water: M.isWater(wx, wy) || M.isWater(wx + 6, wy + 6) ? 1 : 0, warm: M.seasonOf(clk.month) === "winter" ? 0 : 1, frozen: M.tundraV(wx, wy) > 0 ? 1 : 0 });
+}
+for (const ev of ["pointerdown", "keydown"]) window.addEventListener(ev, () => SND.initSound(), { once: true });
 const ZOOMS = [5, 4, 3, 2, 1, .75, .5, .33, .25];
 // ---------- gzip helpers ----------
 async function gz64(str) { const cs = new Blob([str]).stream().pipeThrough(new CompressionStream("gzip")); const buf = new Uint8Array(await new Response(cs).arrayBuffer()); let s = ""; for (let i = 0; i < buf.length; i += 8192) s += String.fromCharCode.apply(null, buf.subarray(i, i + 8192)); return btoa(s); }
@@ -80,7 +86,7 @@ function ui() {
   else if (S.rally) { const r = M.rallyStr(S), nm = { wood: "Wood", food: "Food", stone: "Stone", build: "Builders" }[S.rally.type]; banner("Rally: all hands on " + nm.toLowerCase() + "!", (r >= 1 ? "Everyone who can is helping." : "The rush is calming down…") + " Tap " + nm + " again to stop."); }
   else banner(null);
   { const T0 = S.towns && S.towns[0]; $("vname").textContent = S.phase === "settled" ? (T0 ? T0.name : "Village") + (S.towns && S.towns.length > 1 ? " +" + (S.towns.length - 1) : "") : "Settlers"; }
-  renderLog(false); fillGrid(); fillSel(); if (!$("vilsheet").hidden) fillVillage();
+  renderLog(false); fillGrid(); fillSel(); if (!$("booksheet").hidden) fillBook();
 }
 // ---- command buttons (AoE-style grid) ----
 function cbtn(label, ic, on, fn, opt = {}) {
@@ -159,6 +165,53 @@ function fillSel() {
   }
   if (key === selKey) return; selKey = key; box.textContent = ""; build();
 }
+// ---- the Book: wonders album, treasures, village overview ----
+let bookTab = "wonders", bookSig = "", selWonder = null, selTreasure = null;
+const elx = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+function artCanvas(k, found, maxW, maxH) {
+  const a = G.wonderArt(k), c = document.createElement("canvas"); if (!a) return c; const sc = Math.min(maxW / a.w, maxH / a.h); c.width = Math.round(a.w * sc); c.height = Math.round(a.h * sc);
+  const x = c.getContext("2d"); x.imageSmoothingEnabled = false; x.drawImage(a.canvas, 0, 0, c.width, c.height); if (!found) { x.globalCompositeOperation = "source-in"; x.fillStyle = "#5a3a22"; x.fillRect(0, 0, c.width, c.height); } return c;
+}
+const dirFrom = (S, x, y) => { const t = S.towns && S.towns[0]; if (!t) return ""; const d = Math.round(Math.hypot(x - t.x, y - t.y)); return d < 10 ? "close to " + t.name : "about " + d + " tiles " + M.compass(x - t.x, y - t.y) + " of " + t.name; };
+function fillBook() {
+  const S = W.S; for (const b of $("btabs").children) b.classList.toggle("on", b.dataset.tab === bookTab);
+  for (const t of ["wonders", "treasures", "village"]) $("pane-" + t).hidden = t !== bookTab;
+  if (bookTab === "village") { fillVillage(); return; }
+  const sig = [bookTab, (S.wonders || []).length, (S.treasures || []).length, S.scrollDone ? 1 : 0, selWonder, selTreasure, M.WONDER_KINDS.length].join("|"); if (sig === bookSig) return; bookSig = sig;
+  if (bookTab === "wonders") {
+    const total = M.wonderTotal(S), found = new Map((S.wonders || []).map(w => [w.k, w])), list = $("wlist"), det = $("wdetail"); list.textContent = ""; det.textContent = "";
+    $("wcount").textContent = "Found " + found.size + " of " + (total == null ? "?" : total);
+    if (total == null) list.appendChild(elx("p", "meta", found.size ? "Somewhere an old scroll tells how many wonders the world holds. Send expeditions to look for its pieces." : "Nothing found yet. Wonders hide far away. Send an expedition, or a boat, and the villagers will find them."));
+    for (const b of M.BIOMES) {
+      const kinds = Object.keys(M.WONDERS).filter(k => M.WONDERS[k].biome === b.id), have = kinds.filter(k => found.has(k)); if (total == null && !have.length) continue;
+      list.appendChild(elx("h4", null, b.name + (total != null ? "  " + have.length + "/" + kinds.length : ""))); const g = elx("div", "slots");
+      for (const k of (total != null ? kinds : have)) { const f = found.has(k), sl = elx("button", "slot" + (f ? "" : " unk") + (selWonder === k ? " on" : "")); sl.appendChild(artCanvas(k, f, 64, 48)); sl.appendChild(elx("b", null, f ? M.WONDERS[k].name : "???")); sl.addEventListener("click", () => { selWonder = k; bookSig = ""; fillBook(); if (innerWidth < 700) $("wdetail").scrollIntoView({ behavior: "smooth", block: "start" }); }); g.appendChild(sl); }
+      list.appendChild(g);
+    }
+    const k = selWonder && M.WONDERS[selWonder] ? selWonder : (S.wonders && S.wonders.length ? S.wonders[S.wonders.length - 1].k : null);
+    if (!k) det.appendChild(elx("p", "meta", "Tap a wonder to read about it."));
+    else { const f = found.get(k), d = M.WONDERS[k], bm = M.BIOMES.find(b => b.id === d.biome); det.appendChild(elx("h3", null, f ? d.name : "Unknown wonder")); const big = elx("div", "dbig"); big.appendChild(artCanvas(k, !!f, 260, 200)); det.appendChild(big);
+      det.appendChild(elx("p", "meta", "Land: " + (bm ? bm.name : "")));
+      if (f) { det.appendChild(elx("p", null, d.d)); det.appendChild(elx("p", "meta", "Gives the village " + M.wonderFxText(k) + ".")); det.appendChild(elx("p", "meta", "Found by " + f.by + ", " + dirFrom(S, f.x, f.y) + ".")); const go = elx("button", "btn", "Show on the map"); go.addEventListener("click", () => { centerOn(f.x, f.y); $("booksheet").hidden = true; if (view.zoom < 2) setZoom(3); }); det.appendChild(go); }
+      else det.appendChild(elx("p", null, "Not found yet. It hides somewhere in this kind of land. Only your people can find it, by walking (or sailing) there.")); }
+  } else {
+    const list = $("tlist"), det = $("tdetail"); list.textContent = ""; det.textContent = ""; const tr = S.treasures || [], kinds = new Map();
+    for (const t of tr) if (t.k !== "scroll") kinds.set(t.k, (kinds.get(t.k) || 0) + 1);
+    $("tcount").textContent = "Found " + kinds.size + " of ?";
+    const items = [...kinds.keys()].filter(k => !M.TREASURES[k].place), places = [...kinds.keys()].filter(k => M.TREASURES[k].place);
+    const mk = (k, n) => { const d = M.TREASURES[k], sl = elx("button", "slot" + (selTreasure === k ? " on" : "")); sl.appendChild(elx("div", "em", d.e)); sl.appendChild(elx("b", null, d.name)); if (n > 1) sl.appendChild(elx("span", "n", "×" + n)); sl.addEventListener("click", () => { selTreasure = k; bookSig = ""; fillBook(); if (innerWidth < 700) $("tdetail").scrollIntoView({ behavior: "smooth", block: "start" }); }); return sl; };
+    if (!kinds.size) list.appendChild(elx("p", "meta", "Nothing yet. Treasures lie buried or forgotten far from the village. Expeditions and boats find them as they walk past."));
+    if (items.length) { list.appendChild(elx("h4", null, "Treasures")); const g = elx("div", "slots"); for (const k of items) g.appendChild(mk(k, kinds.get(k))); list.appendChild(g); }
+    if (places.length) { list.appendChild(elx("h4", null, "Hidden places")); const g = elx("div", "slots"); for (const k of places) g.appendChild(mk(k, kinds.get(k))); list.appendChild(g); }
+    // the scroll
+    const got = tr.filter(t => t.k === "scroll"), n = got.length; det.appendChild(elx("h3", null, "Scroll of the Wonders")); det.appendChild(elx("p", "bsub", S.scrollDone ? "Complete" : n + " of 3 pieces"));
+    const pc = elx("div", "pieces"); for (let i = 0; i < 3; i++) { const g = got.find(t => t.i === i), sl = elx("div", "slot" + (g ? "" : " unk")); sl.appendChild(elx("div", "em", g ? "📜" : "❔")); sl.appendChild(elx("b", null, g ? M.SCROLL_NAME[i] : "???")); pc.appendChild(sl); } det.appendChild(pc);
+    det.appendChild(elx("p", "meta", S.scrollDone ? "The pieces fit together. The scroll names every wonder of the world, so the Wonders page now shows how many are left." : "Three pieces of an old scroll lie in far places. Put them together and the Book will tell how many wonders the world holds."));
+    const k = selTreasure && kinds.has(selTreasure) ? selTreasure : null;
+    if (k) { const d = M.TREASURES[k], t = tr.filter(q => q.k === k)[0]; det.appendChild(elx("h4", null, d.name)); const big = elx("div", "dbig"); big.appendChild(elx("div", "em", d.e)); det.appendChild(big); det.appendChild(elx("p", null, d.d)); det.appendChild(elx("p", "meta", "Found by " + t.by + ", " + dirFrom(S, t.x, t.y) + ". Gave " + Object.entries(d.fx).map(([a, b]) => "+" + b + " " + a).join(", ") + "."));
+      if (d.place) { const go = elx("button", "btn", "Show on the map"); go.addEventListener("click", () => { centerOn(t.x, t.y); $("booksheet").hidden = true; if (view.zoom < 2) setZoom(3); }); det.appendChild(go); } }
+  }
+}
 // ---- village overview sheet (opened from the top bar) ----
 let vilSig = "";
 const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts" };
@@ -178,7 +231,7 @@ function fillVillage() {
     const beds = done.reduce((n, b) => n + (M.TYPES[b.type].beds || 0), 0);
     const row = el("div", "vtown"), info = el("div");
     info.append(el("b", null, T.name), el("span", "meta", ppl.length + " villagers · " + beds + " beds · " + done.length + " buildings" + (sites.length ? " · " + sites.length + " being built" : "")));
-    const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(T.x, T.y); $("vilsheet").hidden = true; });
+    const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(T.x, T.y); $("booksheet").hidden = true; });
     row.append(info, go); box.appendChild(row);
   }
   if (S.exp) para(box, "🧭 Pioneers from " + S.exp.from + " are on their way to found " + S.exp.name + ".", "meta");
@@ -187,7 +240,7 @@ function fillVillage() {
     if (S.trek) { const T = S.trek, names = S.people.filter(q => T.members.includes(q.id)).map(q => q.name).join(", "); para(box, "🧭 " + T.name + " (" + names + "), heading " + T.dir + ". " + (S.people.find(q => q.id === T.members[0]) || {}).act + ".", "meta"); }
     for (const bt of S.boats || []) { const nm = S.people.filter(q => bt.crew.includes(q.id)).map(q => q.name).join(", "); const row = el("div", "vtown"), info = el("div"); info.append(el("b", null, "⛵ Boat"), el("span", "meta", bt.st === "dock" ? "Moored at the harbour · " + bt.voy + " trips so far" : nm + (bt.rest > 0 ? " are fishing and looking around" : bt.st === "back" ? " are sailing home" : " are sailing out"))); row.append(info); if (bt.st !== "dock" && OWNER) { const bb = el("button", "btn", "Call back"); bb.addEventListener("click", () => doAct({ k: "sailcancel" })); row.append(bb); } box.appendChild(row); }
     if (S.trek) { } else if (S.rumor) para(box, "🗣️ Rumor: " + M.WONDERS[S.rumor.k].rumor + ", far to the " + S.rumor.dir + ".", "meta");
-    for (const w of S.wonders || []) { const row = el("div", "vtown"), info = el("div"); info.append(el("b", null, M.WONDERS[w.k].name), el("span", "meta", "Found by " + w.by + " · " + M.wonderFxText(w.k))); const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(w.x, w.y); $("vilsheet").hidden = true; if (view.zoom < 2) setZoom(3); }); row.append(info, go); box.appendChild(row); }
+    for (const w of S.wonders || []) { const row = el("div", "vtown"), info = el("div"); info.append(el("b", null, M.WONDERS[w.k].name), el("span", "meta", "Found by " + w.by + " · " + M.wonderFxText(w.k))); const go = el("button", "btn", "Show"); go.addEventListener("click", () => { centerOn(w.x, w.y); $("booksheet").hidden = true; if (view.zoom < 2) setZoom(3); }); row.append(info, go); box.appendChild(row); }
   }
   h("Who does what");
   const by = {}; for (const p of S.people) if (!p.pioneer) by[p.role] = (by[p.role] || 0) + 1;
@@ -263,9 +316,11 @@ $("settle").addEventListener("click", () => { const g = view.ghost; if (g && g.o
 $("placebtn").addEventListener("click", () => { const g = view.ghost; if (g && g.kind === "trek") { if (g.ok) doAct({ k: g.sea ? "sail" : "trek", x: g.x, y: g.y }); return; } if (g && g.ok) doAct({ k: "place", type: g.type, x: g.tx, y: g.ty }); });
 $("placecancel").addEventListener("click", () => { exploreMode = false; buildType = null; view.ghost = null; showPlace(false); gridSig = ""; });
 $("center").addEventListener("click", () => { const c = M.camp(W); if (c) centerOn(c.x + 1.5, c.y + 1.5); else centerOn(W.S.wagon.x, W.S.wagon.y); if (view.zoom < 2) setZoom(3); });
-const sheet = id => { for (const s of ["logsheet", "menusheet", "vilsheet", "wmapsheet"]) $(s).hidden = s !== id || !$(s).hidden; };
-$("vilbtn").addEventListener("click", () => { sheet("vilsheet"); vilSig = ""; fillVillage(); });
-$("resbar").addEventListener("click", () => { sheet("vilsheet"); vilSig = ""; fillVillage(); });
+const sheet = id => { for (const s of ["logsheet", "menusheet", "booksheet", "wmapsheet"]) $(s).hidden = s !== id || !$(s).hidden; };
+const openBook = tab => { if (!$("booksheet").hidden && bookTab === tab) { $("booksheet").hidden = true; return; } sheet("booksheet"); $("booksheet").hidden = false; bookTab = tab; bookSig = ""; vilSig = ""; fillBook(); };
+$("vilbtn").addEventListener("click", () => openBook("village")); $("resbar").addEventListener("click", () => openBook("village")); $("bookbtn").addEventListener("click", () => openBook("wonders"));
+{ const v = SND.getVol(), a = $("vsfx"), b = $("vmus"); a.value = Math.round(v.sfx * 100); b.value = Math.round(v.music * 100); a.addEventListener("input", () => { SND.initSound(); SND.setVol("sfx", a.value / 100); }); b.addEventListener("change", () => SND.setVol("music", b.value / 100)); b.addEventListener("input", () => SND.setVol("music", b.value / 100)); }
+$("btabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { bookTab = b.dataset.tab; bookSig = ""; vilSig = ""; fillBook(); } });
 $("logbtn").addEventListener("click", () => { sheet("logsheet"); renderLog(true); });
 $("menubtn").addEventListener("click", () => sheet("menusheet"));
 for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => $(b.dataset.close).hidden = true);
@@ -335,19 +390,22 @@ function loop(now) {
     W.S.t0 = Date.now() - W.S.tick * 250;
   }
   for (const e of W.events) {
-    if (e.k === "milestone") feed("🏆", e.title, e.txt);
+    if (e.k === "milestone") { feed("🏆", e.title, e.txt); SND.sfx("milestone"); }
     else if (e.k === "arrive" && e.p) feed("👋", e.p.name + " moved in");
     else if (e.k === "built" && e.b && M.TYPES[e.b.type] && !["torch", "bench", "field"].includes(e.b.type)) feed("🔨", M.TYPES[e.b.upTo || e.b.type].name + " finished");
-    else if (e.k === "wonder") feed("🗿", "Wonder found: " + M.WONDERS[e.w.k].name);
+    else if (e.k === "wonder") { feed("🗿", "Wonder found: " + M.WONDERS[e.w.k].name); SND.sfx("wonder"); }
+    else if (e.k === "treasure") { if (e.t.k === "scroll") { feed("📜", "Piece of an old scroll (" + e.scroll + "/3)"); SND.sfx("scroll"); } else { feed(M.TREASURES[e.t.k].e, (M.TREASURES[e.t.k].place ? "Hidden place: " : "Treasure: ") + M.TREASURES[e.t.k].name); SND.sfx("treasure"); } }
+    else if (e.k === "storm") feed("⛈️", "Storm at sea. The boat heads home");
     else if (e.k === "rumor") feed("🗣️", "Rumor: something far to the " + e.dir);
     else if (e.k === "trek") feed(e.what === "start" ? "🧭" : "🏠", e.what === "start" ? "Expedition set out " + e.dir : "Expedition is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : ""));
-    else if (e.k === "boat") feed("⛵", e.what === "start" ? "The boat sailed out" : "The boat is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : ""));
+    else if (e.k === "boat") { if (e.what === "start") SND.sfx("horn"); feed("⛵", e.what === "start" ? "The boat sailed out" : "The boat is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : "")); }
     else if (e.k === "town") feed("🏕️", e.name + " was founded");
     else if (e.k === "gain" && view.zoom >= 2) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
   }
   if (mode === "follow") { const wg = W.S.wagon; view.cam.x += (G.sx(wg.x, wg.y) - view.cam.x) * .06; view.cam.y += (G.sy(wg.x, wg.y) - 10 - view.cam.y) * .06; if (W.S.phase === "settled") mode = null; }
   G.frame(now, rdt); townLabels();
   uiAcc += rdt; if (uiAcc > .25) { uiAcc = 0; ui(); }
+  envAcc += rdt; if (envAcc > 1) { envAcc = 0; soundEnv(); }
   mmAcc += rdt; if (mmAcc > 1) { mmAcc = 0; G.minimap($("mm")); }
   saveAcc += rdt; if (saveAcc > 15) { saveAcc = 0; saveSandbox(); markSeen(); }
   if (LIVE && Date.now() - lastPoll > 15000) { lastPoll = Date.now(); poll(); }

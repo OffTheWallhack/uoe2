@@ -146,7 +146,7 @@ export function createWorld(seed, t0) {
     v: 1, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
-    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0,
+    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false,
   };
   const W = wrap(S);
   const R = mkRng(seed + 7);
@@ -179,7 +179,7 @@ export function wrap(S) {
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy and the changed land
-  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
+  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
   for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2);
   // settlements (older saves had only the first village)
   if (!S.towns) { S.towns = []; const cm = S.b.find(b => b.type === "camp"); if (cm) S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: 0 }); }
@@ -827,6 +827,16 @@ for (const k in FX) WONDERS[k].fx = FX[k];
 export const wonderFxText = k => { const f = WONDERS[k].fx; return "+" + FXPCT[f] + "% " + FXNAME[f]; };
 export function wonderBonus(S, f) { let n = 0; for (const w of S.wonders) if (WONDERS[w.k] && WONDERS[w.k].fx === f) n++; return Math.min(n * FXPCT[f], 40) / 100; }
 function boosted(S, type, amt) { const b = wonderBonus(S, type); if (!b) return amt; const bc = S.bacc || (S.bacc = {}), acc = (bc[type] || 0) + amt * b, ex = Math.floor(acc); bc[type] = acc - ex; return amt + ex; }
+// ---- THE RULE: every biome has its own wonder, and the Wonder Album is built from this list. ----
+// A new biome in an update must add its wonder to WONDERS (with `biome:` set) and, if it is new, a line in BIOMES.
+export const BIOMES = [
+  { id: "meadow", name: "Meadows & Woods" }, { id: "highland", name: "Rivers & Highlands" }, { id: "coast", name: "Coast & Sea" },
+  { id: "forest", name: "Great Forest" }, { id: "desert", name: "Desert" }, { id: "bog", name: "The Bog" }, { id: "frozen", name: "Frozen Lands" }, { id: "grove", name: "Golden Grove" },
+];
+const WB = { stones: "meadow", elder: "meadow", ruins: "meadow", shrine: "meadow", obelisk: "meadow", fairy: "meadow", falls: "highland", spring: "highland", crystal: "highland", arch: "highland", bones: "coast", lighthouse: "coast", tisland: "coast", wtemple: "forest", pyramid: "desert", swamphut: "bog", icespires: "frozen", goldtree: "grove" };
+for (const k in WONDERS) { WONDERS[k].biome = WB[k]; if (!BIOMES.some(b => b.id === WB[k])) throw new Error("wonder " + k + " needs a biome in BIOMES"); }
+for (const b of BIOMES) if (!Object.keys(WONDERS).some(k => WONDERS[k].biome === b.id)) throw new Error("biome " + b.id + " needs a wonder");
+export const wonderTotal = S => S.scrollDone ? Object.keys(WONDERS).length : null;
 const CLASSIC = Object.keys(WONDERS).slice(0, 12);
 const BIGK = Object.keys(WONDERS).filter(k => WONDERS[k].big);
 // how much of a region (48x48) is covered by a biome: only huge stretches of it can hide a wonder
@@ -857,6 +867,66 @@ export function wonderIn(W, rx, ry) {
   } finally { OVER = keepOver; }
   cache.set(key, res); return res;
 }
+// ---------- treasures and hidden places: smaller finds, far more often than wonders ----------
+export const TREASURES = {
+  amphora: { name: "Clay Amphora", e: "🏺", d: "Sealed with wax. Still full of olive oil.", fx: { food: 40 } },
+  chest:   { name: "Old Chest", e: "🧰", d: "Rusty hinges, good oak. Someone buried it in a hurry.", fx: { wood: 40 } },
+  coins:   { name: "Old Coins", e: "🪙", d: "Silver from a kingdom nobody remembers. A trader pays well for it.", fx: { stone: 30 } },
+  helm:    { name: "Knight's Helm", e: "🪖", d: "Dented, and much too big for anyone in the village.", fx: { stone: 20 } },
+  sword:   { name: "Rusted Sword", e: "⚔️", d: "The smith says the steel is still good. He wants to melt it.", fx: { stone: 20 } },
+  bell:    { name: "Small Bell", e: "🔔", d: "It still rings. Clear and sweet.", fx: { wood: 30 } },
+  ring:    { name: "Silver Ring", e: "💍", d: "Inside the band: two names and a date.", fx: { food: 30 } },
+  crown:   { name: "Tiny Crown", e: "👑", d: "Made for a child king. Nobody knows which one.", fx: { food: 40, stone: 20 } },
+  gem:     { name: "Blue Gem", e: "💎", d: "It catches the light and keeps some of it.", fx: { stone: 50 } },
+  horn:    { name: "Hunting Horn", e: "📯", d: "One deep note. Every dog in the village looks up.", fx: { wood: 25 } },
+  cave:    { name: "Hidden Cave", e: "🕳️", d: "A narrow mouth in the rock. Dry inside, with bundles of old dried fruit.", fx: { food: 40 }, place: true },
+  camp:    { name: "Abandoned Camp", e: "⛺", d: "A cold fire ring and a tent that nobody came back for.", fx: { wood: 40 }, place: true },
+  well:    { name: "Old Well", e: "🪣", d: "Moss-covered stones, and water so clear you can see the bottom.", fx: { food: 30 }, place: true },
+  cairn:   { name: "Lost Cairn", e: "🪨", d: "A tall pile of stones. Travellers have added one each for ages.", fx: { stone: 30 }, place: true },
+};
+const TKINDS = Object.keys(TREASURES), RT = 24, SCROLL_PIECES = 3;
+export const SCROLL_NAME = ["The torn top", "The middle strip", "The lower corner"];
+const tH = (W, a, b, c) => ih(((a * 73856093) ^ (W.S.seed | 0) ^ (c * 2654435)) | 0, ((b * 19349663) + c * 83492791 + (W.S.seed | 0)) | 0);
+function treasureSpot(W, x0, y0, w, h, tries, salt) {
+  for (let i = 0; i < tries; i++) { const x = Math.round((x0 + tH(W, salt, i, 11) * w) * 2) / 2, y = Math.round((y0 + tH(W, i, salt, 12) * h) * 2) / 2; if (Math.hypot(x, y) > 14 && dry(x, y) && heightAt(x, y) < 34) return { x, y }; }
+  return null;
+}
+function treasureIn(W, tx, ty) {
+  const cache = W.tc || (W.tc = new Map()), key = tx + "," + ty; if (cache.has(key)) return cache.get(key);
+  let res = null; const keepOver = OVER; OVER = new Map();
+  try { if (tH(W, tx, ty, 1) < .4) { const sp = treasureSpot(W, tx * RT + 2, ty * RT + 2, RT - 4, RT - 4, 5, tx * 131 + ty * 7 + 3); if (sp) { const k = tH(W, tx, ty, 2) < .22 ? TKINDS[10 + Math.floor(tH(W, tx, ty, 3) * 4)] : TKINDS[Math.floor(tH(W, tx, ty, 4) * 10)]; res = { id: "t" + key, k, x: sp.x, y: sp.y }; } } } finally { OVER = keepOver; }
+  cache.set(key, res); return res;
+}
+// the three pieces of the Scroll of the Wonders: one in each of three rings around the start, on the mainland
+function scrollSpots(W) {
+  if (W.ss) return W.ss; const out = []; const keepOver = OVER; OVER = new Map();
+  try { for (let i = 0; i < SCROLL_PIECES; i++) { let sp = null; for (let t = 0; t < 400 && !sp; t++) { const a = tH(W, i, t, 21) * 6.2832, d = 85 + i * 55 + tH(W, i, t, 22) * 45, x = Math.round(Math.cos(a) * d * 2) / 2, y = Math.round(Math.sin(a) * d * 2) / 2; if (dry(x, y) && heightAt(x, y) < 30 && !islandOf(Math.floor(x / ISL), Math.floor(y / ISL)) && flat(x, y)) sp = { id: "sc" + i, k: "scroll", i, x, y }; } if (sp) out.push(sp); } } finally { OVER = keepOver; }
+  return W.ss = out;
+}
+export function debugTreasures(W) { const out = { scroll: scrollSpots(W).map(t => [t.x, t.y, Math.round(Math.hypot(t.x, t.y))]), n: 0, kinds: {} }; for (let j = -6; j < 6; j++) for (let i = -6; i < 6; i++) { const t = treasureIn(W, i, j); if (t) { out.n++; out.kinds[t.k] = (out.kinds[t.k] || 0) + 1; } } return out; }
+function foundTreasure(W, t, p) {
+  const S = W.S, who = p.trek === 1 ? p.name + " and the explorers" : p.boat ? p.name + " and the sailors" : p.name;
+  if (S.treasures.some(q => q.id === t.id)) return;
+  if (t.k === "scroll") {
+    S.treasures.push({ id: t.id, k: "scroll", i: t.i, x: t.x, y: t.y, at: S.tick, by: p.name });
+    const n = S.treasures.filter(q => q.k === "scroll").length;
+    if (n >= SCROLL_PIECES) { S.scrollDone = true; addLog(W, who + " found the last piece of an old scroll. The pieces fit together."); milestone(W, "scroll", "Scroll of the Wonders", "The scroll lists every wonder of the world, by land. Open the Book to see how many are left to find."); }
+    else addLog(W, who + " found a torn piece of an old scroll (" + n + " of " + SCROLL_PIECES + "). It speaks of wonders.");
+    W.events.push({ k: "treasure", t, by: p.name, scroll: n }); return;
+  }
+  const def = TREASURES[t.k]; S.treasures.push({ id: t.id, k: t.k, x: t.x, y: t.y, at: S.tick, by: p.name });
+  const parts = []; for (const r of Object.keys(def.fx)) { S.res[r] = Math.min(capOf(W), S.res[r] + def.fx[r]); parts.push("+" + def.fx[r] + " " + r); }
+  addLog(W, who + " found " + (def.place ? "a hidden place: " : "a treasure: ") + def.name + ". " + def.d + " (" + parts.join(", ") + ")");
+  if (def.place) reveal(W, t.x, t.y, 6);
+  milestone(W, "treasure1", "A Treasure", "The explorers brought back something old. The Book keeps a list of everything they find.");
+  W.events.push({ k: "treasure", t, by: p.name });
+}
+// anyone out exploring (expedition, pilgrim, boat) finds what lies within a few tiles
+function treasureCheck(W, p, x, y, rad) {
+  const S = W.S, tx = Math.floor(x / RT), ty = Math.floor(y / RT);
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const t = treasureIn(W, tx + i, ty + j); if (t && Math.hypot(t.x - x, t.y - y) <= rad && !S.treasures.some(q => q.id === t.id)) foundTreasure(W, t, p); }
+  for (const t of scrollSpots(W)) if (Math.hypot(t.x - x, t.y - y) <= rad && !S.treasures.some(q => q.id === t.id)) foundTreasure(W, t, p);
+}
 const COMPASS = ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"];
 // screen directions: the map is drawn isometric, so "north" is the top of the screen
 export function compass(dx, dy) { const a = Math.atan2(dx + dy, dx - dy); return COMPASS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; }
@@ -883,6 +953,7 @@ function discoverCheck(W) {
       const w = wonderIn(W, rx + i, ry + j); if (!w || Math.hypot(w.x - p.x, w.y - p.y) > 9 || S.wonders.some(q => q.id === w.id)) continue;
       foundWonder(W, w, p);
     }
+    treasureCheck(W, p, p.x, p.y, 7);
   }
 }
 // a newcomer tells a story about something far away
@@ -1100,7 +1171,7 @@ function boatStep(W, bt, H) {
   if (!hb) { for (const p of boatCrew(W, bt)) { p.trek = 0; p.boat = 0; p.inside = false; p.state = "idle"; p.t = 1; } S.boats = S.boats.filter(q => q !== bt); return; }
   if (bt.st === "dock") return;
   if (S.tick % 4 === 0) reveal(W, bt.x, bt.y, 11);
-  if (bt.st === "out") { const l = bt.trail[bt.trail.length - 1]; if (!l || Math.hypot(l.x - bt.x, l.y - bt.y) > 3) bt.trail.push({ x: bt.x, y: bt.y }); if (H >= 19.2 || H < 5.5) { bt.st = "back"; bt.rest = 0; addLog(W, "Dusk is near. The boat turns for home."); } }
+  if (bt.st === "out") { const l = bt.trail[bt.trail.length - 1]; if (!l || Math.hypot(l.x - bt.x, l.y - bt.y) > 3) bt.trail.push({ x: bt.x, y: bt.y }); if (H >= 19.2 || H < 5.5) { bt.st = "back"; bt.rest = 0; addLog(W, "Dusk is near. The boat turns for home."); } else if (S.weather.kind === "rain") { bt.st = "back"; bt.rest = 0; addLog(W, "Dark clouds and rough water. The boat turns for home before the storm."); W.events.push({ k: "storm" }); } }
   if (bt.rest > 0) { bt.rest -= DT; return; }
   let tx, ty, final = false;
   if (bt.st === "out") { const g = bt.legs[bt.i]; if (!g) { bt.st = "back"; return; } tx = g.x; ty = g.y; }
@@ -1130,7 +1201,7 @@ function boatAI(W, H) {
     if (hb.type !== "harbor" || !hb.done || hb.upTo) continue;
     let bt = S.boats.find(q => q.hb === hb.id);
     if (!bt) { const d = dockOf(hb); S.boats.push(bt = { id: S.nextId++, hb: hb.id, x: d.x, y: d.y, hd: 0, st: "dock", crew: [], voy: 0, last: S.tick - 3600, trail: [], legs: [], i: 0, rest: 0, found: [], stuck: 0, sk: 60, bd: 1e9, bias: 1, at: S.tick }); addLog(W, "A boat was launched at the " + (S.towns.length > 1 ? townOf(W, { x: hb.x, y: hb.y }).name + " " : "") + "harbour."); continue; }
-    if (bt.st !== "dock" || H < 6 || H > 16.5 || S.tick - bt.last < 3600 || S.people.length < 8) continue;
+    if (bt.st !== "dock" || H < 6 || H > 16.5 || S.tick - bt.last < 3600 || S.people.length < 8 || S.weather.kind === "rain") continue;
     const legs = planVoyage(W, bt, dockOf(hb)); if (!legs.length) { bt.last = S.tick; continue; }
     const err = sailLaunch(W, bt, legs, "ai"); if (err) bt.last = S.tick - 2400;
   }
@@ -1153,6 +1224,7 @@ function boatDiscover(W) {
     if (bt.st === "dock" || !bt.crew.length) continue; const p = S.people.find(q => q.id === bt.crew[0]); if (!p) continue;
     const rx = Math.floor(bt.x / RG), ry = Math.floor(bt.y / RG);
     for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const w = wonderIn(W, rx + i, ry + j); if (!w || Math.hypot(w.x - bt.x, w.y - bt.y) > 12 || S.wonders.some(q => q.id === w.id)) continue; foundWonder(W, w, p); bt.found.push(w.id); bt.rest = Math.max(bt.rest, 90); }
+    treasureCheck(W, p, bt.x, bt.y, 9);
   }
 }
 // ---------- the whole world, one tick ----------

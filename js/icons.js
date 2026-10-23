@@ -12,6 +12,7 @@ const I = {
   basket: ["............", "....kkkk....", "...k....k...", "..k.rrbb.k..", ".kkkkkkkkkk.", ".kWwWwWwWwk.", ".kwWwWwWwWk.", "..kWwWwWwk..", "..kwWwWwWk..", "...kkkkkk...", "............", "............"],
   flag: ["............", "..kkkkkkk...", "..kryrrrrk..", "..krrryrk...", "..krrrrrrk..", "..kkkkkkk...", "..kh........", "..kh........", "..kh........", "..kh........", "..kk........", "............"],
   menu: ["............", "............", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", "............", "............", "............"],
+  book: ["............", "..kkkkkkkk..", ".kRrrrrrrRk.", ".kRrykkyrRk.", ".kRrrrrrrRk.", ".kRrykkyrRk.", ".kRrrrrrrRk.", ".kReeeeeeek.", ".kkkkkkkkkk.", "............", "............", "............"],
   scroll: ["............", ".kkkkkkkkk..", "kWeeeeeeeWk.", ".keknnnkek..", ".keeeeeeek..", ".keknnnnek..", ".keeeeeeek..", ".keknnnkek..", "kWeeeeeeeWk.", ".kkkkkkkkk..", "............", "............"],
   plus: ["............", "............", ".....kk.....", ".....ee.....", ".....ee.....", "..kkeeeekk..", "..kkeeeekk..", ".....ee.....", ".....ee.....", ".....kk.....", "............", "............"],
   minus: ["............", "............", "............", "............", "............", "..keeeeeek..", "..keeeeeek..", "............", "............", "............", "............", "............"],

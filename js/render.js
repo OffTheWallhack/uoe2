@@ -339,7 +339,7 @@ const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
 function bSprite(b) { const B = SP.bld; if (b.type === "apiary") return B.skeps; if (b.type === "fold") return B.shed; if (B[b.type]) return B[b.type]; if (b.type === "camp" || b.type === "outpost") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
 export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, sel: 0, hourOverride: null, seasonOverride: null, weatherOverride: null };
-let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
+let wkNow = "clear", flash = 0, auroraK = 0; let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
 export function init(canvas) { cv = canvas; ctx = cv.getContext("2d"); }
 export function resize() {
   const r = cv.getBoundingClientRect(); const Z = view.zoom, u = (view.ui || 1) / (r.width / (cv.clientWidth || r.width) || 1); R = (Z >= 1 ? Z : 1) / u; k = Z >= 1 ? 1 : Z; // u: interface scale (CSS px are u screen px)
@@ -349,12 +349,13 @@ export function resize() {
 }
 const STOPS = [[0, [56, 70, 128]], [5.2, [70, 84, 140]], [6.4, [255, 176, 140]], [8, [255, 238, 220]], [10, [255, 255, 255]], [15, [255, 252, 240]], [17.2, [255, 222, 170]], [18.4, [255, 160, 120]], [19.6, [100, 96, 150]], [21, [58, 72, 128]], [24, [56, 70, 128]]];
 function tint(h) { for (let i = 0; i < STOPS.length - 1; i++) { const a = STOPS[i], b = STOPS[i + 1]; if (h >= a[0] && h <= b[0]) { const t = (h - a[0]) / (b[0] - a[0]); return [0, 1, 2].map(q => a[1][q] + (b[1][q] - a[1][q]) * t); } } return [255, 255, 255]; }
+export const wonderArt = k => (wonderSprites(season) || {})[k];
 export function nightOf(h) { const t = tint(h); return M.clamp((1 - (t[0] + t[1] + t[2]) / 765) / .45, 0, 1); }
 const rain = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), s: .7 + Math.random() * .6 }));
 function px(c, x, y, w, h, col, a) { c.fillStyle = col; if (a !== undefined) c.globalAlpha = a; c.fillRect(x, y, w, h); if (a !== undefined) c.globalAlpha = 1; }
 export function screenOf(x, y) { const q = k * cv.clientWidth / Vw; return [(sx(x, y) - vx0) * q, (gyH(x, y) - vy0) * q]; }
 export function frame(now, rdt) {
-  T = now / 1000; if (!W) return;
+  T = now / 1000; if (!W) return; wkNow = view.weatherOverride || W.S.weather.kind;
   const S = W.S, clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month);
   if (sea !== season || !SP) setSeason(sea);
   consume(); W.events.length = 0;
@@ -410,8 +411,23 @@ export function frame(now, rdt) {
   ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = rgb(tn); ctx.fillRect(0, 0, Vw, Vh); ctx.globalCompositeOperation = "source-over";
   const n = nightOf(hour); if (n > .2 && Z >= .5) drawGlow(n, hour);
   if (wk === "fog") { ctx.fillStyle = "rgba(200,206,210,.18)"; ctx.fillRect(0, 0, Vw, Vh); }
+  { // polar lights over the frozen lands (only on clear or cloudy nights while the view is over the tundra)
+    const wx = (view.cam.x / 8 + view.cam.y / 4) / 2, wy = (view.cam.y / 4 - view.cam.x / 8) / 2, dark = nightOf(hour), over = M.tundraV(wx, wy) > 0 || M.tundraV(wx + 20, wy + 20) > 0 || M.tundraV(wx - 20, wy - 20) > 0;
+    auroraK += ((over && dark > .55 && wk !== "rain" && wk !== "fog" ? 1 : 0) - auroraK) * Math.min(1, rdt * .6); if (auroraK > .02) drawAurora(auroraK * dark);
+    if (wk === "rain") { if (Math.random() < rdt * .035) { flash = 1; if (view.sfx) view.sfx("thunder"); } } flash = Math.max(0, flash - rdt * 2.6); if (flash > .02) { ctx.fillStyle = "rgba(226,232,255," + (flash * .28).toFixed(3) + ")"; ctx.fillRect(0, 0, Vw, Vh); }
+  }
   drawWeather(wk, rdt); ctx.drawImage(vig, 0, 0);
   if (Z >= 2 && !over) drawTexts(rdt);
+}
+function drawAurora(a) {
+  const prev = ctx.globalCompositeOperation; ctx.globalCompositeOperation = "lighter"; const H = Vh * .5, step = Math.max(2, Math.round(Vw / 160));
+  for (let x = 0; x < Vw; x += step) {
+    const u = x / Vw, w1 = Math.sin(u * 7 + T * .35) * .5 + .5, w2 = Math.sin(u * 13 - T * .5 + 1.7) * .5 + .5, top = Vh * (.04 + .08 * Math.sin(u * 3 + T * .2)), len = H * (.5 + .5 * w1);
+    const g = ctx.createLinearGradient(0, top, 0, top + len); const hue = u + Math.sin(T * .1) * .15;
+    g.addColorStop(0, "rgba(120,60,200,0)"); g.addColorStop(.25, "rgba(" + Math.round(70 + 90 * hue) + ",255,170," + (.5 * a * (.4 + .6 * w2)).toFixed(3) + ")"); g.addColorStop(.7, "rgba(40,200,150," + (.3 * a * (.4 + .6 * w1)).toFixed(3) + ")"); g.addColorStop(1, "rgba(30,120,160,0)");
+    ctx.fillStyle = g; ctx.fillRect(x, top, step, len);
+  }
+  ctx.globalCompositeOperation = prev;
 }
 function spr(list, s, wx, wy, depth, info, VWa, VHa, zz) {
   if (!s) return; const x = sx(wx, wy) - s.ax - vx0, y = sy(wx, wy) - (zz ?? hR(wx, wy)) - s.ay - vy0;
@@ -475,12 +491,13 @@ function drawEntities(vis, hour, VWa, VHa) {
   }
   { const WS = wonderSprites(season);
     for (const w of S.wonders) { const s = WS[w.k], d = M.WONDERS[w.k]; if (!s) continue; spr(ents, s, w.x, w.y, w.x + w.y, { t: d.name, d: d.d + " Found by " + w.by + "." }, VWa, VHa); }
+    for (const t of S.treasures || []) { const d = M.TREASURES[t.k], s = d && d.place && WS["p_" + t.k]; if (s) spr(ents, s, t.x, t.y, t.x + t.y, { t: d.name, d: d.d + " Found by " + t.by + "." }, VWa, VHa); }
     const T = S.trek; if (T) { const lead = S.people.find(q => q.id === T.members[0]);
       if (lead && !M.hidden(W, lead.x, lead.y) && (T.rest > 0 || hour >= 21.5 || hour < 5.3)) { const f = { x: lead.x + 1.2, y: lead.y + .9 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(gyH(f.x, f.y) - vy0);
         ents.push({ depth: f.x + f.y, draw: () => drawFire(fx, fy, hour), box: [fx - 7, fy - 10, fx + 7, fy + 4, { t: "Campfire", d: "The " + T.name + " is resting here." }] }); if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: gyH(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 }); } } }
   for (const b of S.b) if (b.type === "harbor" && b.pdx !== undefined) { const cx = b.x + b.a / 2, cy = b.y + b.b / 2; if (Math.abs(sx(cx, cy) - vx0 - VWa / 2) < VWa / 2 + 90 && Math.abs(gyH(cx, cy) - vy0 - VHa / 2) < VHa / 2 + 90) ents.push({ depth: -1e5, draw: () => drawPier(b) }); }
   { const BS = boatSprites();
-    for (const bt of S.boats) { const hb = S.b.find(q => q.id === bt.hb); if (!hb || M.hidden(W, bt.x, bt.y)) continue; const s = Math.cos(bt.hd) < 0 ? BS.l : BS.r, wx = bt.x + Math.sin(T * 1.3 + bt.id) * .0, bob = Math.round(Math.sin(T * 1.7 + bt.id) * .6);
+    for (const bt of S.boats) { const hb = S.b.find(q => q.id === bt.hb); if (!hb || M.hidden(W, bt.x, bt.y)) continue; const s = Math.cos(bt.hd) < 0 ? BS.l : BS.r, wx = bt.x + Math.sin(T * 1.3 + bt.id) * .0, bob = Math.round(Math.sin(T * (wkNow === "rain" ? 3 : 1.7) + bt.id) * (wkNow === "rain" ? 1.8 : .6));
       const crew = S.people.filter(q => bt.crew.includes(q.id)).map(q => q.name).join(", ");
       const x = Math.round(sx(bt.x, bt.y) - vx0 - s.ax), y = Math.round(gyH(bt.x, bt.y) - vy0 - s.ay) + bob; if (x > VWa || y > VHa || x + s.w < 0 || y + s.h < 0) continue;
       const moving = bt.st !== "dock" && bt.rest <= 0, cxs = Math.round(sx(bt.x, bt.y) - vx0), cys = Math.round(gyH(bt.x, bt.y) - vy0);

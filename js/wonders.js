@@ -31,8 +31,14 @@ function mk(w, h) {
   };
   return { w, h, put, rect, blob, slab, iso, finish, shadow };
 }
-Object.assign(WSIZE, { swamphut: [58, 66], icespires: [56, 70], goldtree: [76, 88] });
+Object.assign(WSIZE, { swamphut: [58, 66], icespires: [56, 70], goldtree: [76, 88], p_cave: [34, 28], p_camp: [34, 28], p_well: [22, 24], p_cairn: [18, 26] });
 const DRAW = {
+  p_cave(g) { const { w, h } = g; g.shadow(17, h - 5, 14, 3); g.blob(17, 16, 15, 11, [128, 122, 114], 1); g.blob(17, 20, 7, 7, [24, 20, 26], 2); g.blob(9, 12, 6, 4, [146, 140, 130], 3); g.blob(27, 14, 5, 4, [112, 106, 98], 4); g.rect(10, 10, 4, 1, MOSS); g.rect(22, 8, 5, 1, MOSS); },
+  p_camp(g) { const { w, h } = g; g.shadow(17, h - 5, 14, 3);
+    for (let j = 0; j < 12; j++) for (let i = 0; i < 20; i++) { const t = Math.abs(i - 10) / (10 - j * .75); if (t > 1) continue; g.put(4 + i, 4 + j, rgb([196, 176, 130], 1.06 - (i / 20) * .3 - j * .01)); } g.rect(12, 10, 4, 6, [50, 36, 28]);
+    for (let a = 0; a < 7; a++) g.put(24 + Math.round(Math.cos(a) * 4), 20 + Math.round(Math.sin(a) * 2), [120, 114, 106]); g.put(24, 19, [60, 56, 54]); g.put(23, 20, [60, 56, 54]); },
+  p_well(g) { const { w, h } = g; g.shadow(11, h - 4, 9, 2); g.blob(11, 16, 8, 5, [150, 146, 136], 1); g.blob(11, 15, 5, 3, [60, 118, 150], 2); g.rect(2, 4, 2, 14, WOOD); g.rect(18, 4, 2, 14, WOOD); g.rect(2, 3, 18, 2, [150, 70, 56]); g.rect(10, 5, 1, 7, [210, 200, 170]); },
+  p_cairn(g) { const { w, h } = g; g.shadow(9, h - 4, 8, 2); [[9, 20, 7, 3], [9, 16, 6, 3], [9, 12, 5, 3], [9, 8, 3, 3], [9, 5, 2, 2]].forEach(([cx, y, hw, hh], i) => g.slab(cx - hw, y, hw * 2, hh + 1, i % 2 ? [150, 146, 138] : [128, 124, 116], i + 1)); },
   swamphut(g) { const { w, h } = g, cx = 29; g.blob(cx, h - 9, 27, 7, [50, 68, 60], 1); g.blob(cx - 8, h - 10, 8, 2, [104, 132, 118], 2); g.blob(cx + 11, h - 8, 5, 1, [84, 110, 98], 3);
     const DW = [84, 60, 42], PL = [126, 94, 62], WALL = [118, 90, 60], TH = [156, 132, 66];
     [[12, 30], [22, 34], [36, 34], [46, 30]].forEach(([x, y0], i) => { g.slab(x, y0 + 8, 3, h - 9 - (y0 + 8), DW, i + 1); g.put(x + 1, h - 10, [30, 40, 34], 150); });

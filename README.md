@@ -17,3 +17,12 @@ they gather, farm, explore, tread footpaths and build what they need. The Mayor 
 
 The world is deterministic: the same saved state and the same number of ticks (0.25 s each) give the same result,
 so the browser can keep simulating between server saves without drifting.
+
+## Rules for every update (please keep)
+
+- **Every new biome comes with its own wonder of the world.** Add the biome to `BIOMES` and the wonder to `WONDERS` in `js/sim.js`
+  (with `biome:` set, a sprite in `js/wonders.js`, and a bonus in `FX`). The game refuses to start if a wonder has no biome or a biome has no wonder.
+- The **Wonder Album** in the Book is built from that list, so the total ("3 of 18") and the biome pages update by themselves.
+  The total only shows once the Scroll of the Wonders (three pieces found on expeditions) is complete.
+- A wonder only hides in a *huge* stretch of its biome (see `big:` in `WONDERS`), anywhere inside it, and it only appears on the map after villagers have walked or sailed there.
+- Sound is optional and soft. Music: put files in `assets/music/` and list them in `assets/music/list.json`.

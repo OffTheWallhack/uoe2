@@ -119,6 +119,30 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 .tip b{display:block;font:700 13px var(--display);margin-bottom:1px}
 .sheet{position:absolute;right:max(8px,env(safe-area-inset-right));top:calc(var(--top) + env(safe-area-inset-top) + 8px);width:min(380px,calc(100% - 16px));max-height:calc(100% - var(--top) - var(--cmd) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));overflow:auto;padding:12px 14px;z-index:5}
 .sheet.wmap{left:50%;right:auto;top:50%;transform:translate(-50%,-50%);width:min(96%,980px);max-height:92%;padding:10px 12px 8px;z-index:6}.sheet.wmap canvas{display:block;width:100%;height:auto;max-height:calc(100vh - 180px);object-fit:contain;image-rendering:pixelated;background:#0e1620;border:2px solid #000;cursor:pointer}.sheet.wmap .meta{margin:6px 2px 0}
+
+/* the Book: two parchment pages, tabs on the edge */
+.sheet.book{left:50%;right:auto;top:50%;transform:translate(-50%,-50%);width:min(96%,900px);max-height:92%;padding:14px 46px 14px 14px;z-index:6;background:#6a3f26;border:3px solid #2a160a;box-shadow:inset 0 0 0 2px #a8743e,0 6px 24px rgba(0,0,0,.6);overflow:hidden;display:flex;flex-direction:column}
+.sheet.book .x{right:6px;top:6px;z-index:2}
+.btabs{position:absolute;right:4px;top:48px;display:flex;flex-direction:column;gap:6px}.btabs button{width:36px;height:36px;padding:0;background:#c99a5c;border:2px solid #2a160a;outline:1px solid #a8743e;cursor:pointer;display:flex;align-items:center;justify-content:center}.btabs button.on{background:#f0d9a8;box-shadow:0 0 0 2px #f0c860}
+.bpane{overflow:auto;max-height:calc(92vh - 40px)}.bpane[hidden]{display:none}
+.spread{display:grid;grid-template-columns:1fr 1fr;gap:0;background:#e0bf8a;border:2px solid #2a160a;box-shadow:inset 0 0 0 3px #c99a5c;position:relative}.spread:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:6px;margin-left:-3px;background:linear-gradient(90deg,transparent,rgba(60,30,10,.35),transparent)}
+.spread.one{grid-template-columns:1fr}.spread.one:before{display:none}
+.spread .page{padding:12px 14px;min-height:300px;color:#3a2414;min-width:0}
+.page h3{font:700 17px var(--display);color:#4a2a12;margin:0 0 2px;text-align:center;border-bottom:2px solid #a8743e;padding-bottom:4px;letter-spacing:.5px}
+.page h4{font:700 12.5px var(--display);color:#6a3a18;margin:12px 0 5px;border-bottom:1px dashed #a8743e}
+.page p,.page li,.page .meta{color:#3a2414;font-size:13px}.page .meta{color:#6a4a2c}
+.bsub{text-align:center;margin:4px 0 6px;font:700 13px var(--display);color:#6a3a18}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:6px}
+.slot{background:#c99a5c;border:2px solid #4a2a12;outline:1px solid #f0d9a8;padding:4px 2px 3px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;font:11px/1.15 var(--body);color:#2a160a;text-align:center;min-height:74px;position:relative}
+.slot canvas{width:64px;height:48px;image-rendering:pixelated}.slot .em{font-size:30px;line-height:44px}
+.slot.on{background:#f0d9a8;box-shadow:0 0 0 2px #c84a36}.slot.unk{background:#b8895a;color:#5a3a22}.slot.unk canvas{opacity:.85}
+.slot b{font-weight:700}.slot .n{position:absolute;right:3px;top:1px;font:700 11px var(--body);color:#7a2a20}
+.dbig{display:flex;justify-content:center;margin:8px 0}.dbig canvas{image-rendering:pixelated;max-width:100%;height:auto}.dbig .em{font-size:64px;line-height:80px}
+.page .btn{font-size:12px;padding:4px 12px;min-height:30px}
+.pieces{display:flex;gap:8px;justify-content:center;margin:6px 0}.pieces .slot{width:80px;cursor:default;min-height:64px}
+.sheet.book .vstats{color:#3a2414}.sheet.book .vs small,.sheet.book .vs b{color:#3a2414}.sheet.book .vtown{border-color:#a8743e;background:rgba(255,255,255,.18)}.sheet.book .vlist li{color:#3a2414}
+.sheet.book .page h4{color:#6a3a18}.sheet.book .page p,.sheet.book .page li{color:#3a2414}.sheet.book .page .meta,.sheet.book .page p.meta{color:#6a4a2c}.sheet.book .vtown b,.sheet.book .vs b{color:#3a2414}.sheet.book .vlist b{color:#7a2a20}.sheet.book .vtown .meta,.sheet.book .vs small{color:#6a4a2c}.sheet.book .page p.bsub{color:#6a3a18}
+@media(max-width:700px){.spread{grid-template-columns:1fr}.spread:before{display:none}.spread .page{min-height:0}.sheet.book{padding:10px 44px 10px 8px;width:calc(100% - 12px)}}
 .sheet h2{font:700 18px var(--display);color:var(--gold);text-shadow:0 2px 0 #000;margin:0 0 10px;padding-right:40px}
 .sheet h4{font:700 13px var(--display);color:var(--gold);margin:14px 0 6px}
 .sheet p,.sheet li{color:var(--ink);font-size:13.5px}
@@ -176,7 +200,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
     <div class="mid"><span id="hud"></span><span class="net" id="net" hidden>…</span></div>
     <div class="tb"><button class="btn" id="logbtn">Chronicle</button><button class="btn" id="menubtn">Menu</button></div>
   </header>
-  <div class="side"><button class="btn" id="zin" aria-label="Zoom in"><img class="pi" data-ic="plus" alt=""></button><span class="zl" id="zl"></span><button class="btn" id="zout" aria-label="Zoom out"><img class="pi" data-ic="minus" alt=""></button><button class="btn" id="zworld" aria-label="Whole world" title="Whole world"><img class="pi" data-ic="globe" alt=""></button><button class="btn" id="center" aria-label="Back to the village" title="Back to the village"><img class="pi" data-ic="home" alt=""></button></div>
+  <div class="side"><button class="btn" id="zin" aria-label="Zoom in"><img class="pi" data-ic="plus" alt=""></button><span class="zl" id="zl"></span><button class="btn" id="zout" aria-label="Zoom out"><img class="pi" data-ic="minus" alt=""></button><button class="btn" id="zworld" aria-label="Whole world" title="Whole world"><img class="pi" data-ic="globe" alt=""></button><button class="btn" id="bookbtn" aria-label="The Book" title="The Book"><img class="pi" data-ic="book" alt=""></button><button class="btn" id="center" aria-label="Back to the village" title="Back to the village"><img class="pi" data-ic="home" alt=""></button></div>
   <div class="banner" id="banner" hidden></div>
   <ul class="kf" id="kf" aria-live="polite"></ul>
   <div class="labels" id="labels" hidden></div>
@@ -188,10 +212,19 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
     <section class="well mmwrap"><canvas id="mm" width="128" height="64" aria-label="Minimap. Tap to move the view."></canvas></section>
   </footer>
   <section class="sheet carved" id="logsheet" hidden><h2>Chronicle</h2><button class="btn x" data-close="logsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><ul class="feed" id="feed"></ul></section>
-  <section class="sheet carved left" id="vilsheet" hidden><h2>Village</h2><button class="btn x" data-close="vilsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><div id="vilbody"></div></section>
+  <section class="sheet book" id="booksheet" hidden aria-label="The Book">
+    <button class="btn x" data-close="booksheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
+    <nav class="btabs" id="btabs"><button data-tab="wonders" title="Wonders of the World"><img class="pi" data-ic="globe" alt=""></button><button data-tab="treasures" title="Treasures"><img class="pi" data-ic="scroll" alt=""></button><button data-tab="village" title="Village"><img class="pi" data-ic="home" alt=""></button></nav>
+    <div class="bpane" id="pane-wonders" hidden><div class="spread"><div class="page"><h3>Wonders of the World</h3><p class="bsub" id="wcount"></p><div id="wlist"></div></div><div class="page" id="wdetail"></div></div></div>
+    <div class="bpane" id="pane-treasures" hidden><div class="spread"><div class="page"><h3>Treasures &amp; Hidden Places</h3><p class="bsub" id="tcount"></p><div id="tlist"></div></div><div class="page" id="tdetail"></div></div></div>
+    <div class="bpane" id="pane-village" hidden><div class="spread one"><div class="page"><h3>Village</h3><div id="vilbody"></div></div></div></div>
+  </section>
   <section class="sheet carved wmap" id="wmapsheet" hidden><h2>World map</h2><button class="btn x" data-close="wmapsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><canvas id="wmapc" aria-label="World map. Tap a place to go there."></canvas><p class="meta" id="wmapinfo"></p></section>
   <section class="sheet carved" id="menusheet" hidden><h2>Menu</h2><button class="btn x" data-close="menusheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
     <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" id="fsbtn"><img class="pi" data-ic="full" alt="">Full screen</button></div>
+    <h4>Sound</h4>
+    <label>Sounds (very soft) <input type="range" id="vsfx" min="0" max="100" step="5"></label>
+    <label>Music <input type="range" id="vmus" min="0" max="100" step="5"></label>
     <h4>Interface size</h4>
     <div class="uisz" id="uisz"></div>
     <p id="fshint" class="meta" hidden>On iPhone: tap Share, then “Add to Home Screen”. The game then opens full screen like an app.</p>
