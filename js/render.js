@@ -449,8 +449,9 @@ function drawEntities(vis, hour, VWa, VHa) {
     for (const b of ch.bushes) { if (b.gone || M.hidden(W, b.x, b.y)) continue; if (b.mush) { const has = b.berries > 0 && !P.snow; spr(ents, (has ? SP.mush : SP.mushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Mushrooms", d: has ? "Boletes and chanterelles. Mind the red one." : "Picked clean. More will grow." }, VWa, VHa); continue; } if (b.bog) { const has = b.berries > 0 && !P.snow; spr(ents, (has ? SP.reed : SP.reedBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Bog reeds", d: has ? "Cranberries hide among the reeds." : "No berries right now." }, VWa, VHa); continue; } const has = b.berries > 0 && P.berry; spr(ents, (has ? SP.bush : SP.bushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Berry bush", d: has ? "Ripe berries to pick." : "No berries right now." }, VWa, VHa); }
     for (const r of ch.rocks) { if (r.stone <= 0 || M.hidden(W, r.x, r.y)) continue; spr(ents, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, r.x + r.y, { t: r.big ? "Stone outcrop" : "Rock", d: r.stone + " loads of stone left." }, VWa, VHa); }
   }
-  const R0 = S.res, tier = v => v >= 300 ? 2 : v >= 60 ? 1 : 0;
+  let R0 = S.res; const tier = v => v >= 300 ? 2 : v >= 60 ? 1 : 0;
   for (const b of S.b) {
+    R0 = M.townRes(S, b.town);
     const T = M.TYPES[b.type], info = { t: T.name + (b.done ? "" : " (being built)"), d: b.done ? T.d : "Building site: " + Math.round(b.prog * 100) + "% done." + (b.by === "mayor" ? " Ordered by the Mayor." : " The villagers' own idea."), b: b.id };
     if (b.type === "field") {
       if (b.done) { info.d = ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe! Ready to harvest."][b.stage] + " Crop: " + M.CROPS[b.crop].name + (b.auto ? " (villagers' choice)." : " (Mayor's choice)."); if (b.stage >= 1) spr(ents, SP.bld.scarecrow, b.x + .7, b.y + .7, b.x + b.y + 1.4, null, VWa, VHa); }

@@ -194,7 +194,8 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
       <div class="r" title="Wood"><img class="pi" data-ic="wood" alt=""><b id="rwood">0</b><small>Wood</small></div>
       <div class="r" title="Stone"><img class="pi" data-ic="stone" alt=""><b id="rstone">0</b><small>Stone</small></div>
       <div class="r" title="Villagers / beds"><img class="pi" data-ic="pop" alt=""><b id="rpop">0</b><small>Villagers</small></div>
-      <div class="r" title="Storage per resource"><img class="pi" data-ic="store" alt=""><b id="cap">0</b><small>Storage</small></div>
+      <div class="r" title="Storage per resource (per settlement)"><img class="pi" data-ic="store" alt=""><b id="cap">0</b><small>Storage</small></div>
+      <div class="r" id="coinr" title="Coins in all treasuries" hidden><img class="pi" data-ic="coin" alt=""><b id="rcoin">0</b><small>Coins</small></div>
     </button>
     <button class="btn vil" id="vilbtn" aria-label="Village overview"><img class="pi" data-ic="pop" alt=""><span id="vname">Village</span><span class="dn">▾</span></button>
     <div class="mid"><span id="hud"></span><span class="net" id="net" hidden>…</span></div>
@@ -214,9 +215,10 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   <section class="sheet carved" id="logsheet" hidden><h2>Chronicle</h2><button class="btn x" data-close="logsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><ul class="feed" id="feed"></ul></section>
   <section class="sheet book" id="booksheet" hidden aria-label="The Book">
     <button class="btn x" data-close="booksheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
-    <nav class="btabs" id="btabs"><button data-tab="wonders" title="Wonders of the World"><img class="pi" data-ic="globe" alt=""></button><button data-tab="treasures" title="Treasures"><img class="pi" data-ic="scroll" alt=""></button><button data-tab="village" title="Village"><img class="pi" data-ic="home" alt=""></button></nav>
+    <nav class="btabs" id="btabs"><button data-tab="wonders" title="Wonders of the World"><img class="pi" data-ic="globe" alt=""></button><button data-tab="treasures" title="Treasures"><img class="pi" data-ic="scroll" alt=""></button><button data-tab="market" title="Market"><img class="pi" data-ic="market" alt=""></button><button data-tab="village" title="Village"><img class="pi" data-ic="home" alt=""></button></nav>
     <div class="bpane" id="pane-wonders" hidden><div class="spread"><div class="page"><h3>Wonders of the World</h3><p class="bsub" id="wcount"></p><div id="wlist"></div></div><div class="page" id="wdetail"></div></div></div>
     <div class="bpane" id="pane-treasures" hidden><div class="spread"><div class="page"><h3>Treasures &amp; Hidden Places</h3><p class="bsub" id="tcount"></p><div id="tlist"></div></div><div class="page" id="tdetail"></div></div></div>
+    <div class="bpane" id="pane-market" hidden><div class="spread one"><div class="page"><h3>Market</h3><div id="mktbody"></div></div></div></div>
     <div class="bpane" id="pane-village" hidden><div class="spread one"><div class="page"><h3>Village</h3><div id="vilbody"></div></div></div></div>
   </section>
   <section class="sheet carved wmap" id="wmapsheet" hidden><h2>World map</h2><button class="btn x" data-close="wmapsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><canvas id="wmapc" aria-label="World map. Tap a place to go there."></canvas><p class="meta" id="wmapinfo"></p></section>

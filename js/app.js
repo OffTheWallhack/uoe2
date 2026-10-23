@@ -73,8 +73,9 @@ function renderLog(force) {
   for (const l of S.log.slice(0, 40)) { const li = document.createElement("li"), b = document.createElement("b"); b.textContent = hhmm(M.clockOf(S, l.tk).hour); li.append(b, document.createTextNode(l.t)); ul.appendChild(li); }
 }
 function ui() {
-  const S = W.S, cap = M.capOf(W), beds = M.bedsTotal(W);
-  $("rfood").textContent = S.res.food; $("rwood").textContent = S.res.wood; $("rstone").textContent = S.res.stone; $("rpop").textContent = S.people.length + (S.phase === "settled" ? "/" + beds : "");
+  const S = W.S, cap = S.towns.length > 1 ? M.capOf(W) + "×" + S.towns.length : M.capOf(W), beds = M.bedsTotal(W), TR = M.totalRes(S), coins = S.towns.reduce((n, t) => n + (t.coin || 0), 0);
+  $("rfood").textContent = Math.round(TR.food); $("rwood").textContent = Math.round(TR.wood); $("rstone").textContent = Math.round(TR.stone);
+  $("coinr").hidden = !(S.phase === "settled" && (coins > 0.0049 || S.trade.n)); $("rcoin").textContent = coins.toFixed(coins < 10 ? 2 : 1); $("cap").parentElement.hidden = !$("coinr").hidden; $("rpop").textContent = S.people.length + (S.phase === "settled" ? "/" + beds : "");
   $("cap").textContent = cap; $("food").classList.toggle("low", S.hungry);
   const clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month), wk = view.weatherOverride || S.weather.kind;
   $("hud").textContent = cap1(sea) + " · " + hhmm(hour) + " · " + cap1(wk) + (S.weather.temp != null && !view.weatherOverride ? " " + Math.round(S.weather.temp) + "°C" : "") + (speed > 1 ? " · ×" + speed : "") + (LIVE ? (OWNER ? " · Mayor" : " · Watching") : " · Test world");
@@ -175,8 +176,9 @@ function artCanvas(k, found, maxW, maxH) {
 const dirFrom = (S, x, y) => { const t = S.towns && S.towns[0]; if (!t) return ""; const d = Math.round(Math.hypot(x - t.x, y - t.y)); return d < 10 ? "close to " + t.name : "about " + d + " tiles " + M.compass(x - t.x, y - t.y) + " of " + t.name; };
 function fillBook() {
   const S = W.S; for (const b of $("btabs").children) b.classList.toggle("on", b.dataset.tab === bookTab);
-  for (const t of ["wonders", "treasures", "village"]) $("pane-" + t).hidden = t !== bookTab;
+  for (const t of ["wonders", "treasures", "market", "village"]) $("pane-" + t).hidden = t !== bookTab;
   if (bookTab === "village") { fillVillage(); return; }
+  if (bookTab === "market") { fillMarket(); return; }
   const sig = [bookTab, (S.wonders || []).length, (S.treasures || []).length, S.scrollDone ? 1 : 0, selWonder, selTreasure, M.WONDER_KINDS.length].join("|"); if (sig === bookSig) return; bookSig = sig;
   if (bookTab === "wonders") {
     const total = M.wonderTotal(S), found = new Map((S.wonders || []).map(w => [w.k, w])), list = $("wlist"), det = $("wdetail"); list.textContent = ""; det.textContent = "";
@@ -215,14 +217,43 @@ function fillBook() {
 // ---- village overview sheet (opened from the top bar) ----
 let vilSig = "";
 const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts" };
+let mktSig = "";
+function fillMarket() {
+  const S = W.S, box = $("mktbody"), towns = S.towns || [];
+  const sig = [towns.map(t => { const r = M.resOf(S, t); return [Math.round(r.food / 10), Math.round(r.wood / 10), Math.round(r.stone / 10), (t.coin || 0).toFixed(2)].join(","); }).join(";"), S.trade.n, JSON.stringify(S.price), S.people.filter(p => p.trade).length].join("|"); if (sig === mktSig) return; mktSig = sig; box.textContent = "";
+  const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+  if (S.phase !== "settled") { para(box, "There is nothing to trade yet.", "meta"); return; }
+  const h = t => box.appendChild(el("h4", null, t));
+  para(box, "What does not fit into a storehouse is sold: 10,000 spare goods bring 5 coins. A village with plenty sends goods to a village that is short, and the price follows supply and demand.", "meta");
+  h("Prices (coins per 1,000)");
+  const stats = el("div", "vstats");
+  for (const k of M.KINDS) { const d = el("div", "vs"), pr = S.price[k]; d.append(iconEl(k, 2), el("b", null, pr.toFixed(2)), el("small", null, (pr > 1.25 ? "dear " : pr < .8 ? "cheap " : "fair ") + cap1(k))); stats.appendChild(d); }
+  box.appendChild(stats);
+  h("Settlements");
+  for (const T of towns) {
+    const r = M.resOf(S, T), cp = M.capT(W, T), row = el("div", "vtown"), info = el("div");
+    info.append(el("b", null, T.name + (T.hungry ? " (hungry)" : "")), el("span", "meta", "Food " + Math.round(r.food) + " · Wood " + Math.round(r.wood) + " · Stone " + Math.round(r.stone) + " (room for " + cp + " each)"), el("span", "meta", "Treasury: " + (T.coin || 0).toFixed(2) + " coins"));
+    for (const sp of info.querySelectorAll(".meta")) sp.style.display = "block";
+    row.appendChild(info); box.appendChild(row);
+  }
+  h("Trade");
+  const tr = S.trade, onRoad = S.people.filter(p => p.trade).length;
+  if (!tr.n) para(box, towns.length < 2 ? "Trade starts when there is more than one village." : "No goods have changed hands yet. Trade begins when one village is short of something and another has plenty.", "meta");
+  else {
+    para(box, tr.n + " deliveries · " + tr.vol.food + " food, " + tr.vol.wood + " wood, " + tr.vol.stone + " stone · " + tr.coins.toFixed(2) + " coins paid (" + tr.tax.toFixed(2) + " lost as market tax)" + (onRoad ? " · " + onRoad + " on the road now" : ""), "meta");
+    const names = id => (towns.find(t => t.id === id) || {}).name;
+    for (const [key, n] of Object.entries(S.pact).sort((a, b) => b[1] - a[1]).slice(0, 8)) { const [a, b] = key.split("-").map(Number); para(box, names(a) + " ⇄ " + names(b) + " · " + n + " deliveries · " + (n >= 40 ? "close friends" : n >= 12 ? "good neighbours" : "acquaintances"), "meta"); }
+  }
+}
 function fillVillage() {
   const S = W.S, box = $("vilbody"), towns = S.towns || [];
-  const sig = [S.people.length, S.b.length, S.b.filter(b => b.done).length, towns.length, JSON.stringify(S.res), !!S.exp, (S.wonders || []).length, S.trek ? S.trek.i : -1, (S.boats || []).map(b => b.st + b.voy).join(), S.rumor ? S.rumor.id : 0, Math.floor(S.tick / 240)].join("|"); if (sig === vilSig) return; vilSig = sig; box.textContent = "";
+  const sig = [S.people.length, S.b.length, S.b.filter(b => b.done).length, towns.length, JSON.stringify(M.totalRes(S)), S.towns.map(t => (t.coin || 0).toFixed(1)).join(), !!S.exp, (S.wonders || []).length, S.trek ? S.trek.i : -1, (S.boats || []).map(b => b.st + b.voy).join(), S.rumor ? S.rumor.id : 0, Math.floor(S.tick / 240)].join("|"); if (sig === vilSig) return; vilSig = sig; box.textContent = "";
   if (S.phase !== "settled") { para(box, "The settlers have not picked a place yet."); return; }
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
   const cap = M.capOf(W);
   const stats = el("div", "vstats");
-  for (const [ic, v, l] of [["food", S.res.food, "Food"], ["wood", S.res.wood, "Wood"], ["stone", S.res.stone, "Stone"], ["pop", S.people.length + "/" + M.bedsTotal(W), "Villagers"], ["store", cap, "Storage"]]) { const d = el("div", "vs"); d.append(iconEl(ic, 2), el("b", null, String(v)), el("small", null, l)); stats.appendChild(d); }
+  const TR = M.totalRes(S);
+  for (const [ic, v, l] of [["food", Math.round(TR.food), "Food"], ["wood", Math.round(TR.wood), "Wood"], ["stone", Math.round(TR.stone), "Stone"], ["pop", S.people.length + "/" + M.bedsTotal(W), "Villagers"], ["store", cap, "Storage each"]]) { const d = el("div", "vs"); d.append(iconEl(ic, 2), el("b", null, String(v)), el("small", null, l)); stats.appendChild(d); }
   box.appendChild(stats);
   const h = t => box.appendChild(el("h4", null, t));
   h(towns.length > 1 ? "Settlements" : "Settlement");
@@ -365,7 +396,7 @@ function welcomeBack() {
   const S = W.S; if (!seen || seen.seed !== S.seed || S.tick - seen.tick < 4 * 60 * 20) return;
   const mins = Math.round((S.tick - seen.tick) / 240), dur = mins >= 60 ? Math.floor(mins / 60) + " h " + (mins % 60) + " min" : mins + " min";
   const lines = S.log.filter(l => l.tk > seen.tick).map(l => l.t).reverse();
-  const d = (k) => S.res[k] - (seen.res[k] || 0), sgn = v => (v >= 0 ? "+" : "") + v;
+  const TRn = M.totalRes(S), d = (k) => Math.round(TRn[k] - (seen.res[k] || 0)), sgn = v => (v >= 0 ? "+" : "") + v;
   $("wbtitle").textContent = "While you were away (" + dur + ")";
   const ul = $("wblist"); ul.textContent = "";
   const add = t => { const li = document.createElement("li"); li.textContent = t; ul.appendChild(li); };
@@ -375,7 +406,7 @@ function welcomeBack() {
   $("wb").hidden = false;
 }
 $("wbok").addEventListener("click", () => $("wb").hidden = true);
-function markSeen() { try { const S = W.S; localStorage.setItem(seenKey, JSON.stringify({ seed: S.seed, tick: S.tick, res: S.res, pop: S.people.length })); } catch (e) { } }
+function markSeen() { try { const S = W.S; localStorage.setItem(seenKey, JSON.stringify({ seed: S.seed, tick: S.tick, res: M.totalRes(S), pop: S.people.length })); } catch (e) { } }
 // ---------- main loop ----------
 let last = performance.now(), uiAcc = 0, saveAcc = 0, mmAcc = 1;
 function loop(now) {

@@ -146,7 +146,7 @@ export function createWorld(seed, t0) {
     v: 1, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
-    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false,
+    chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false, price: { food: 1, wood: 1, stone: 1 }, trade: { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }, pact: {}, marketT: 60, tradeT: 120,
   };
   const W = wrap(S);
   const R = mkRng(seed + 7);
@@ -179,7 +179,7 @@ export function wrap(S) {
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy and the changed land
-  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
+  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.price = S.price || { food: 1, wood: 1, stone: 1 }; S.trade = S.trade || { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }; S.pact = S.pact || {}; S.marketT = S.marketT || 60; S.tradeT = S.tradeT || 120; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
   for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2);
   // settlements (older saves had only the first village)
   if (!S.towns) { S.towns = []; const cm = S.b.find(b => b.type === "camp"); if (cm) S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: 0 }); }
@@ -370,7 +370,7 @@ export function addBuilding(W, type, x, y, by, sh) {
   S.b.push(b); occupy(W, b, true);
   let n = 0; treesIn(W, x, y, a, bb, (t, ch) => { if (!t.felled) { t.felled = true; t.logs = 0; n++; } t.cleared = true; t.gone = true; t.sapling = false; markChunk(W, ch); });
   bushesIn(W, x, y, a, bb, (t, ch) => { t.gone = true; markChunk(W, ch); });
-  if (n) S.res.wood += n;
+  if (n) townRes(S, b.town).wood += n;
   W.events.push({ k: "build", b });
   return b;
 }
@@ -392,10 +392,32 @@ export const seasonOf = month => month <= 2 || month === 12 ? "winter" : month <
 export function addLog(W, t) { const S = W.S; S.log.unshift({ tk: S.tick, t }); if (S.log.length > 40) S.log.length = 40; W.events.push({ k: "log", t }); }
 function milestone(W, id, title, txt) { const S = W.S; if (S.ms[id]) return; S.ms[id] = S.tick; addLog(W, "Milestone: " + title + ". " + txt); W.events.push({ k: "milestone", title, txt }); }
 // ---------- helpers ----------
-export const capOf = W => 200 + 300 * W.S.b.filter(b => b.done && b.type === "store").length;
+// ---------- economy: every settlement has its own stock and treasury ----------
+// The first settlement keeps its stock in S.res (older saves), the others in T.res. Storage is per settlement.
+export const COIN = .0005;       // coins per surplus unit: 10,000 units become 5 coins; 1 coin buys about 1,000 units
+export const KINDS = ["food", "wood", "stone"];
+export const resOf = (S, T) => (T && S.towns[0] && T.id !== S.towns[0].id) ? (T.res || (T.res = { food: 0, wood: 0, stone: 0 })) : S.res;
+export const townRes = (S, id) => { const T = S.towns && S.towns.find(t => t.id === id); return T ? resOf(S, T) : S.res; };
+export const capT = (W, T) => 200 + 300 * W.S.b.filter(b => b.done && b.type === "store" && (!T || b.town === T.id)).length;
+export const capOf = (W, T) => capT(W, T || W.S.towns[0]);
+export const totalRes = S => { const r = { food: 0, wood: 0, stone: 0 }; for (const t of (S.towns.length ? S.towns : [null])) { const q = resOf(S, t); for (const k of KINDS) r[k] += q[k] || 0; } return r; };
+export const totalCap = W => W.S.towns.length ? W.S.towns.reduce((n, t) => n + capT(W, t), 0) : capT(W, null);
+const homeTown = W => W.S.towns[0];
+// put goods into a settlement's stock; whatever does not fit is sold off for coins (a loss that works as a tax)
+function addRes(W, T, k, amt) {
+  const S = W.S, R = resOf(S, T), cap = capT(W, T), v = R[k] + amt;
+  if (v > cap) { if (T) { T.coin = Math.round(((T.coin || 0) + (v - cap) * COIN) * 10000) / 10000; if (!S.ms.coins && T.coin >= .05) milestone(W, "coins", "First Coins", "The storehouse was full, so the villagers sold the surplus. Every 10,000 spare goods bring 5 coins."); } R[k] = cap; }
+  else R[k] = v;
+}
 export const camp = W => W.S.b.find(b => b.type === "camp");
 export function bedsTotal(W) { let n = 0; for (const b of W.S.b) if (b.done && TYPES[b.type].beds) n += TYPES[b.type].beds; return n; }
-function homeFor(W) { const used = {}; for (const p of W.S.people) used[p.home] = (used[p.home] || 0) + 1; for (const b of W.S.b) { const T = TYPES[b.type]; if (b.done && !b.upTo && T.beds && (used[b.id] || 0) < T.beds) return b.id; } return 0; }
+function homeFor(W) {
+  // newcomers move into the settlement with the fewest people that still has a free bed
+  const S = W.S, used = {}, pop = {}; for (const p of S.people) { used[p.home] = (used[p.home] || 0) + 1; const h = S.b.find(b => b.id === p.home); if (h) pop[h.town] = (pop[h.town] || 0) + 1; }
+  let best = 0, bp = 1e9;
+  for (const b of S.b) { const T = TYPES[b.type]; if (b.done && !b.upTo && T.beds && (used[b.id] || 0) < T.beds) { const q = (pop[b.town] || 0) * 100 + (b.town || 1); if (q < bp) { bp = q; best = b.id; } } }
+  return best;
+}
 const an = n => (/^[AEIOU]/.test(n) ? "an " : "a ") + n;
 // stumps near houses are dug out sooner
 function plantable(W, x, y) {
@@ -408,7 +430,11 @@ function plantable(W, x, y) {
 function nearVillage(W, x, y) { for (const b of W.S.b) if (Math.abs(b.x + b.a / 2 - x) < b.a / 2 + 5 && Math.abs(b.y + b.b / 2 - y) < b.b / 2 + 5) return true; return false; }
 // ---------- settlements ----------
 export function townAt(S, x, y) { let best = S.towns[0], bd = 1e9; for (const t of S.towns) { const d = Math.hypot(t.x - x, t.y - y); if (d < bd) { bd = d; best = t; } } return best; }
-export function townOf(W, p) { const S = W.S, h = S.b.find(b => b.id === p.home); const id = h ? h.town : 1; return S.towns.find(t => t.id === id) || S.towns[0]; }
+export function townOf(W, p) {
+  const S = W.S; let id = W.tm && W.tm.get(p.home);
+  if (id === undefined) { const h = S.b.find(b => b.id === p.home); id = h ? h.town : 1; if (h) (W.tm || (W.tm = new Map())).set(p.home, id); }
+  return S.towns.find(t => t.id === id) || S.towns[0];
+}
 const hallOf = (W, t) => t && W.S.b.find(b => b.id === t.hall);
 const center = b => ({ x: b.x + b.a / 2, y: b.y + b.b / 2 });
 export const isSite = b => !b.done || !!b.upTo;
@@ -452,26 +478,29 @@ const innLeave = p => 22.4 + frac(p.id * .29) * 1.1;
 const evening = h => h >= 21.5 || h < 3;
 function night(h) { return h >= 21.5 || h < 6; }
 export function rallyStr(S) { if (!S.rally) return 0; const t = S.rally.t; return t < 60 ? 1 : Math.max(0, 1 - (t - 60) / 60); }
-function assignRoles(W) {
-  const S = W.S, n = S.people.length, sites = S.b.filter(isSite).length;
-  const fields = S.b.filter(b => b.done && TYPES[b.type].field).length;
+function assignRoles(W) { const S = W.S; if (!S.towns.length) assignTown(W, null); else for (const T of S.towns) assignTown(W, T); }
+function assignTown(W, T) {
+  const S = W.S, people = T ? S.people.filter(p => !p.pioneer && townOf(W, p).id === T.id) : S.people, n = people.length; if (!n) return;
+  const R = resOf(S, T), sites = S.b.filter(b => isSite(b) && (!T || b.town === T.id || b.type === "bridge" || b.by === "mayor")).length;
+  const fields = S.b.filter(b => b.done && TYPES[b.type].field && (!T || b.town === T.id)).length;
   const want = { build: sites ? Math.min(n, Math.max(1, Math.round(n * .3)) + (S.b.some(b => !b.done && b.by === "mayor") ? 1 : 0)) : 0 };
   const rest = n - want.build;
-  const foodShare = S.res.food < n * 6 ? .5 : .35;
+  const foodShare = R.food < n * 6 ? .5 : .35;
   want.food = Math.max(1, Math.round(rest * foodShare)); want.stone = S.ms.settled && n >= 5 ? Math.max(0, Math.round(rest * .12)) : 0;
-  want.scout = n >= 4 ? 1 : 0; want.wood = Math.max(0, rest - want.food - want.stone - want.scout);
+  want.scout = n >= (T && T.id !== 1 ? 6 : 4) ? 1 : 0; want.wood = Math.max(0, rest - want.food - want.stone - want.scout);
   if (fields && want.food < fields) { want.food = Math.min(rest, fields); want.wood = Math.max(0, rest - want.food - want.stone - want.scout); }
   const have = {}; for (const k in want) have[k] = 0;
   const free = [];
-  for (const p of S.people) { if (want[p.role] !== undefined && have[p.role] < want[p.role]) have[p.role]++; else free.push(p); }
+  for (const p of people) { if (want[p.role] !== undefined && have[p.role] < want[p.role]) have[p.role]++; else free.push(p); }
   for (const p of free) { for (const k of ["build", "food", "wood", "stone", "scout"]) if (have[k] < want[k]) { p.role = k; have[k]++; break; } }
 }
 function pickJob(W, p, H) {
   const S = W.S, tw = townOf(W, p), hall = hallOf(W, tw) || camp(W), cm = hall, home = hall ? center(hall) : { x: 0, y: 0 }, rs = rallyStr(S), sea = seasonOf(clockOf(S).month);
   let role = p.role;
   if (S.rally && rs > .3 && rnd(W) < rs) role = S.rally.type;
-  const cap = capOf(W);
-  if (role !== "build" && role !== "scout" && S.res[role] >= cap) { const alt = ["food", "wood", "stone"].filter(k => S.res[k] < cap * .8); role = alt.length && rnd(W) < .5 ? alt[(rnd(W) * alt.length) | 0] : "rest"; }
+  const R = resOf(S, tw), cap = capT(W, tw);
+  // a full storehouse does not stop the work: the surplus is sold for coins, but people prefer to gather what is running low
+  if (role !== "build" && role !== "scout" && R[role] >= cap) { const alt = KINDS.filter(k => R[k] < cap * .8); if (alt.length && rnd(W) < .6) role = alt[(rnd(W) * alt.length) | 0]; }
   let job = null, obj = null, tx = 0, ty = 0;
   const free = r => !busy.get(bkey(r));
   // visits between settlements: people carry news and bundles, and the walking makes roads
@@ -487,10 +516,10 @@ function pickJob(W, p, H) {
     const sites = S.b.filter(b => isSite(b) && (S.towns.length < 2 || b.town === tw.id || b.type === "bridge" || b.by === "mayor")).sort((a, b) => (a.by === "mayor" ? 0 : 1) - (b.by === "mayor" ? 0 : 1) || a.at - b.at);
     for (const s of sites) {
       const needK = ["wood", "stone"].find(k => (s.need[k] || 0) > 0);
-      if (needK && S.res[needK] > 0) { const st = nearestDrop(W, needK, s.x, s.y); if (st) { const d = doorOf(st); job = "fetch"; obj = { b: s.id }; p.fetchK = needK; p.fetchFrom = st.id; tx = d.x; ty = d.y; break; } }
+      if (needK && townRes(S, s.town)[needK] > 0) { const st = nearestDrop(W, needK, s.x, s.y); if (st) { const d = doorOf(st); job = "fetch"; obj = { b: s.id }; p.fetchK = needK; p.fetchFrom = st.id; tx = d.x; ty = d.y; break; } }
       if (!needK) { const ws = workSpot(W, s); job = "construct"; obj = { b: s.id }; tx = ws.x + (s.type === "bridge" || s.type === "fill" ? 0 : (rnd(W) - .5) * s.a); ty = ws.y; break; }
     }
-    if (!job) role = sites.some(s => (s.need.stone || 0) > 0 && !S.res.stone) ? "stone" : "wood";
+    if (!job) role = sites.some(s => (s.need.stone || 0) > 0 && !townRes(S, s.town).stone) ? "stone" : "wood";
   }
   if (!job && role === "food") {
     const f = S.b.filter(b => b.done && b.type === "field" && (b.stage === 0 || b.stage === 3));
@@ -554,6 +583,7 @@ function nextRound(W, p) {
 function ckeyOf(o) { return o._k || ""; }
 function think(W, p, H) {
   const S = W.S, cm = camp(W);
+  if (p.trade) { tradeAbort(W, p); p.pack = false; }
   if (p.state === "sleep" && morningP(p, H)) { p.state = "morning"; p.act = "Waking up at home"; return; }
   if (p.state === "morning") { if (morningP(p, H)) return; p.state = "idle"; p.asleep = false; p.t = .3; }
   const chap = S.b.find(b => b.done && b.type === "chapel" && b.town === townOf(W, p).id);
@@ -579,7 +609,7 @@ function think(W, p, H) {
   }
   pickJob(W, p, H);
 }
-const WORK = { quarry: 30, visit: 12, wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
+const WORK = { quarry: 30, visit: 12, trade: 10, wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
 function walk(W, p, spd) {
   const dt = DT, dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
   if (d < .25) return true;
@@ -602,7 +632,7 @@ function walk(W, p, spd) {
 function updatePerson(W, p, H) {
   const S = W.S, cm = camp(W);
   p.moving = false;
-  const spd = (S.hungry ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed"));
+  const ptw0 = S.towns.length ? townOf(W, p) : null, hg = ptw0 ? ptw0.hungry : S.hungry, spd = (hg ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed"));
   if (S.phase === "choose") { p.t -= DT; if (p.t < 0) { p.t = 3 + rnd(W) * 5; const a = rnd(W) * 6.3; p.tx = S.wagon.x - 1 + Math.cos(a) * 2; p.ty = S.wagon.y + 1.2 + Math.sin(a) * 1.4; } walk(W, p, .6); return; }
   if (S.phase === "travel") { const q = pathAt(S, S.wagon.d - 1.4 - (p.id % 5) * .9); p.tx = q.x + (p.id % 2 ? .7 : -.7); p.ty = q.y + (p.id % 2 ? -.5 : .5); walk(W, p, 1.6); if (p.moving) addWear(W, p.x, p.y, .012 * DT); return; }
   p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? 7.5 : 3.4); }
@@ -610,12 +640,13 @@ function updatePerson(W, p, H) {
     case "arrive": if (walk(W, p, spd)) { p.state = "idle"; p.t = 1; } break;
     case "idle": case "wait": p.t -= DT; if (p.t <= 0) think(W, p, H); break;
     case "go": {
-      if (p.job === "visit") { p.goT = (p.goT || 0) + DT; if (p.goT > 900) { p.goT = 0; p.pack = false; p.state = "idle"; p.t = 1; break; } }
-      const near = !["rest", "scout", "construct", "sow", "harvest", "tend", "visit"].includes(p.job) && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
+      if (p.job === "visit" || p.job === "trade") { p.goT = (p.goT || 0) + DT; if (p.goT > 900) { p.goT = 0; p.pack = false; if (p.trade) tradeAbort(W, p); p.state = "idle"; p.t = 1; break; } }
+      const near = !["rest", "scout", "construct", "sow", "harvest", "tend", "visit", "trade"].includes(p.job) && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
       if (walk(W, p, spd) || near) {
-        if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; if (s && isSite(s) && (s.need[k] || 0) > 0 && S.res[k] > 0) { const n = Math.min(5, s.need[k], S.res[k]); S.res[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
-        p.goT = 0; p.state = "work"; p.t = WORK[p.job] * (S.hungry ? 1.3 : 1) * (1 - rallyStr(S) * .2);
-        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey", visit: "Chatting in " + (p.visitTo || "the other village"), quarry: "Cutting stone at the quarry" }[p.job];
+        if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; const SR = s ? townRes(S, s.town) : S.res; if (s && isSite(s) && (s.need[k] || 0) > 0 && SR[k] > 0) { const n = Math.min(5, s.need[k], SR[k]); SR[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
+        if (p.job === "trade" && p.trade) tradeDeliver(W, p);
+        p.goT = 0; p.state = "work"; p.t = WORK[p.job] * (hg ? 1.3 : 1) * (1 - rallyStr(S) * .2);
+        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey", visit: "Chatting in " + (p.visitTo || "the other village"), trade: "Haggling over the price", quarry: "Cutting stone at the quarry" }[p.job];
         if (p.job === "rest") p.sit = p.benchSit || rnd(W) < .3;
       }
       if (evening(H) || deepP(p, H)) think(W, p, H);
@@ -623,12 +654,12 @@ function updatePerson(W, p, H) {
     }
     case "work": p.t -= DT; if (p.job === "construct") { const s = deref(W, p.obj); if (s && isSite(s)) { s.prog += DT / TYPES[s.upTo || s.type].time * (1 + rallyStr(S) * .3); if (s.prog >= 1) { if (s.upTo) finishUpgrade(W, s); else finishBuilding(W, s); } } else p.t = 0; }
       if (p.t <= 0) { p.sit = false; finishWork(W, p); } break;
-    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { S.res[p.carry.type] += boosted(S, p.carry.type, p.carry.amt); } p.carry = null; p.state = "idle"; p.t = .3; } break;
+    case "deliver": if (walk(W, p, spd * .9) || Math.hypot(p.tx - p.x, p.ty - p.y) < .7) { const s = S.b.find(b => b.id === p.carry.to); if (!s || !isSite(s)) { addRes(W, townOf(W, p), p.carry.type, boosted(S, p.carry.type, p.carry.amt)); } p.carry = null; p.state = "idle"; p.t = .3; } break;
     case "toStore": if (walk(W, p, spd * .9)) {
-      const gn = boosted(S, p.carry.type, p.carry.amt); S.res[p.carry.type] = Math.min(capOf(W), S.res[p.carry.type] + gn); W.events.push({ k: "gain", type: p.carry.type, amt: gn, x: p.x, y: p.y });
+      const gn = boosted(S, p.carry.type, p.carry.amt), ptw = townOf(W, p); addRes(W, ptw, p.carry.type, gn); W.events.push({ k: "gain", type: p.carry.type, amt: gn, x: p.x, y: p.y });
       if (p.carry.mill) { const m = S.b.find(b => b.id === p.carry.mill); if (m) m.grind = S.tick + 480; }
       p.carry = null; p.state = "idle"; p.t = .6 + rnd(W) * 1.5 * (1 - rallyStr(S)); p.act = "Back home";
-      if (S.res.wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
+      if (resOf(S, ptw).wood >= 50) milestone(W, "wood50", "A Fine Woodpile", "Fifty logs stacked up.");
     } break;
     case "fire": case "bed": if (walk(W, p, spd)) { if (p.state === "fire") { p.state = "sit"; p.sit = true; p.act = "Sitting by the fire"; } else { p.state = "sleep"; p.asleep = true; p.act = "Sleeping"; } } if (!evening(H) && !deepP(p, H)) think(W, p, H); else if (p.state === "fire" && deepP(p, H)) think(W, p, H); break;
     case "sit": if (!evening(H) || deepP(p, H)) think(W, p, H); break;
@@ -659,7 +690,7 @@ function finishWork(W, p) {
   else if (j === "honey" && o) { p.carry = { type: "food", amt: flowerV(o.x + 1, o.y) > .4 || flowerV(o.x + 4, o.y + 4) > .4 ? 5 : 3 }; o.honey = S.tick + 720; }
   else if (j === "harvest" && o && o.stage === 3) { const n = Math.min(3, o.left), mill = S.b.find(b => b.done && b.type === "mill"); o.left -= n; p.carry = mill ? { type: "food", amt: Math.round(n * 1.5), mill: mill.id } : { type: "food", amt: n }; if (o.left <= 0) { o.stage = 0; o.work = 0; W.events.push({ k: "field", b: o }); milestone(W, "harvest", "First Harvest", "The first field is harvested. The Hut and the Windmill are unlocked."); if (o.auto) {} } }
   else if (j === "scout") { p.state = "idle"; p.t = .5; return; }
-  else if (j === "visit") { p.pack = false; }
+  else if (j === "visit" || j === "trade") { p.pack = false; }
   else if (j === "quarry") { p.carry = { type: "stone", amt: 2 }; }
   p.state = "idle"; p.t = .2;
 }
@@ -703,7 +734,8 @@ function plan(W) {
   const S = W.S; if (!camp(W)) return;
   // the busiest paths slowly become gravel roads; the busiest roads become wide cobbled main roads
   const stoneNeeded = S.b.some(b => isSite(b) && (b.need.stone || 0) > 0);
-  if (S.res.stone >= 100 && !stoneNeeded) {
+  const richest = k => S.towns.reduce((a, t) => resOf(S, t)[k] > resOf(S, a)[k] ? t : a, S.towns[0]), RS = resOf(S, richest("stone"));
+  if (RS.stone >= 100 && !stoneNeeded) {
     const c1 = [], c2 = [];
     for (const ch of W.chunks.values()) {
       for (let j = 0; j < C; j++) for (let i = 0; i < C; i++) {
@@ -715,8 +747,8 @@ function plan(W) {
       }
     }
     c1.sort((p, q) => q[0] - p[0]); const got = c1.slice(0, 4).map(q => q[1]);
-    if (got.length) { for (const k of got) { ROAD.set(k, 1); S.road.push(k); } S.res.stone -= got.length * 2; W.events.push({ k: "road", tiles: got }); if (!S.ms.road) milestone(W, "road", "First Road", "The busiest path was paved with gravel. Walking is faster on roads."); }
-    if (S.res.stone >= 180 && c2.length) {
+    if (got.length) { for (const k of got) { ROAD.set(k, 1); S.road.push(k); } RS.stone -= got.length * 2; W.events.push({ k: "road", tiles: got }); if (!S.ms.road) milestone(W, "road", "First Road", "The busiest path was paved with gravel. Walking is faster on roads."); }
+    if (RS.stone >= 180 && c2.length) {
       c2.sort((p, q) => q[0] - p[0]); const up = c2.slice(0, 3).map(q => q[1]), wide = [];
       for (const k of up) {
         ROAD.set(k, 2); S.road2.push(k); S.road = S.road.filter(q => q !== k);
@@ -724,7 +756,7 @@ function plan(W) {
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nk = (x + dx) + ":" + (y + dy); if (ROAD.has(nk) || W.occ.has(nk) || wet(x + dx + .5, y + dy + .5)) continue; const w = wearAt(W, x + dx + .5, y + dy + .5); if (w > bw) { bw = w; bk = nk; } }
         if (bk) { ROAD.set(bk, 1); S.road.push(bk); wide.push(bk); }
       }
-      S.res.stone -= up.length * 4 + wide.length * 2; W.events.push({ k: "road", tiles: up.concat(wide) });
+      RS.stone -= up.length * 4 + wide.length * 2; W.events.push({ k: "road", tiles: up.concat(wide) });
       if (!S.ms.road2) milestone(W, "road2", "A Main Road", "So many feet walked here that the villagers laid a wide cobbled road.");
     }
   }
@@ -732,7 +764,7 @@ function plan(W) {
   const wk = Object.keys(S.wade); if (wk.length > 300) { const keep = wk.sort((a, b) => S.wade[b] - S.wade[a]).slice(0, 60); const nw = {}; for (const k of keep) nw[k] = S.wade[k]; S.wade = nw; }
   if (!S.b.some(b => b.type === "bridge" && !b.done)) {
     let bk = null, bv = 0; for (const k in S.wade) if (S.wade[k] > bv) { bv = S.wade[k]; bk = k; }
-    if (bk && bv >= 600) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && S.res.wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; } else if (bk) S.wade[bk] = 0; }
+    if (bk && bv >= 600) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && resOf(S, richest("wood")).wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; } else if (bk) S.wade[bk] = 0; }
   }
   expeditions(W);
   for (const t of S.towns) planTown(W, t);
@@ -744,17 +776,17 @@ function planTown(W, T) {
   if (n >= 6 && ppl.filter(p => p.watch).length < 1 + (n >= 16 ? 1 : 0)) { const free = ppl.filter(p => !p.watch && !p.trek && !p.pioneer), w = free.find(p => p.trait === "night owl") || free[free.length - 1]; if (w) { w.watch = 1; addLog(W, w.name + " became the night watchman of " + T.name + ". Someone keeps a lantern lit all night."); } }
   if (mine.some(b => isSite(b) && b.by === "ai")) return;
   let beds = 0; for (const b of mine) if (b.done && TYPES[b.type].beds) beds += TYPES[b.type].beds;
-  const free = beds - n;
+  const free = beds - n, R = resOf(S, T), cap = capT(W, T);
   // a pit house is rebuilt into a hut when there is stone
-  if (S.ms.harvest && free <= 1 && S.res.wood >= 20 && S.res.stone >= 4) {
+  if (S.ms.harvest && free <= 1 && R.wood >= 20 && R.stone >= 4) {
     const pit = mine.find(b => b.type === "pit" && b.done && !b.upTo);
     if (pit) { occupy(W, pit, false); const err = canPlace(W, "hut", pit.x, pit.y, false); if (!err) { pit.upTo = "hut"; pit.prog = 0; pit.need = { ...TYPES.hut.cost }; pit.a = 3; pit.b = 3; occupy(W, pit, true); addLog(W, "In " + T.name + " the villagers are rebuilding a Pit House into a Hut."); W.events.push({ k: "build", b: pit }); return; } occupy(W, pit, true); }
   }
-  const afford = t => { const k = TYPES[t].cost; return (S.res.wood >= (k.wood || 0) * .6) && (S.res.stone >= (k.stone || 0) * .6); };
+  const afford = t => { const k = TYPES[t].cost; return (R.wood >= (k.wood || 0) * .6) && (R.stone >= (k.stone || 0) * .6); };
   const L = [], near = (list, ok, r) => { const t = pickNear(W, c.x, c.y, r || 30, list, ok, 1); return t ? t.o : null; };
   // everyone needs a roof
   const totalFree = bedsTotal(W) - S.people.length;
-  if (free <= 1 && (first || totalFree <= 2 || free <= 0)) L.push([S.ms.pop15 && S.res.stone >= 12 && n >= 10 ? "longhouse" : S.ms.harvest && S.res.stone >= 3 ? "hut" : "pit", c, 5, 20]);
+  if (free <= 1 && (first || totalFree <= 2 || free <= 0 || n < 8)) L.push([S.ms.pop15 && R.stone >= 12 && n >= 10 ? "longhouse" : S.ms.harvest && R.stone >= 3 ? "hut" : "pit", c, 5, 20]);
   // workplaces and storehouses next to the resources around this village
   if (!has("wcut")) { const t = near("trees", o => !o.felled); if (t) L.push(["wcut", t, 2, 9]); }
   if (!has("field") && n >= (first ? 5 : 4)) L.push(["field", c, 6, 18]);
@@ -775,9 +807,14 @@ function planTown(W, T) {
   if (S.ms.pop10 && !has("harbor") && n >= 12 && first) { const t = near("shore", () => true, 40); if (t) L.push(["harbor", t, 2, 10]); }
   if (S.ms.pop10 && !has("tavern") && n >= 10) L.push(["tavern", c, 5, 16]);
   if (S.ms.pop12 && !has("chapel") && n >= 12) L.push(["chapel", c, 7, 20]);
+  if (n >= 7 && cnt("field") < 2) L.push(["field", c, 6, 22]);
   if (cnt("field") * 5 < n - 2) L.push(["field", c, 6, 24]);
+  // when the storehouse is overflowing the village keeps growing: roofs ahead of need, more fields
+  const rich = KINDS.filter(k => R[k] >= cap * .6).length >= 2;
+  if (rich && free > 1 && free <= 3 && n >= 6) L.push([S.ms.pop15 && R.stone >= 12 && n >= 10 ? "longhouse" : S.ms.harvest && R.stone >= 3 ? "hut" : "pit", c, 5, 22]);
+  if (rich && n >= 8 && cnt("field") < 1 + Math.floor(n / 6)) L.push(["field", c, 6, 26]);
   // a growing village keeps building: more workplaces, more storage when it is full, wells, lights for the night
-  const capFull = ["wood", "stone", "food"].some(k => S.res[k] >= capOf(W) * .9);
+  const capFull = KINDS.some(k => R[k] >= cap * .9);
   if (n >= 10 && has("store") && capFull && cnt("store") < 1 + Math.floor(n / 10)) { const t = near("trees", o => !o.felled, 26); L.push(["store", t ? { x: (t.x + c.x) / 2, y: (t.y + c.y) / 2 } : c, 4, 18]); }
   if (n >= 12 && cnt("wcut") < 1 + Math.floor(n / 12)) { const t = pickNear(W, c.x + 8, c.y - 6, 30, "trees", o => !o.felled && !mine.some(b => b.type === "wcut" && Math.hypot(b.x - o.x, b.y - o.y) < 14), 1); if (t) L.push(["wcut", t.o, 2, 9]); }
   if (n >= 12 && cnt("forage") < 1 + Math.floor(n / 14)) { const t = pickNear(W, c.x, c.y, 30, "bushes", o => !o.gone && !mine.some(b => b.type === "forage" && Math.hypot(b.x - o.x, b.y - o.y) < 12), 1); if (t) L.push(["forage", t.o, 2, 9]); }
@@ -915,7 +952,7 @@ function foundTreasure(W, t, p) {
     W.events.push({ k: "treasure", t, by: p.name, scroll: n }); return;
   }
   const def = TREASURES[t.k]; S.treasures.push({ id: t.id, k: t.k, x: t.x, y: t.y, at: S.tick, by: p.name });
-  const parts = []; for (const r of Object.keys(def.fx)) { S.res[r] = Math.min(capOf(W), S.res[r] + def.fx[r]); parts.push("+" + def.fx[r] + " " + r); }
+  const parts = []; for (const r of Object.keys(def.fx)) { addRes(W, homeTown(W), r, def.fx[r]); parts.push("+" + def.fx[r] + " " + r); }
   addLog(W, who + " found " + (def.place ? "a hidden place: " : "a treasure: ") + def.name + ". " + def.d + " (" + parts.join(", ") + ")");
   if (def.place) reveal(W, t.x, t.y, 6);
   milestone(W, "treasure1", "A Treasure", "The explorers brought back something old. The Book keeps a list of everything they find.");
@@ -978,7 +1015,7 @@ function trekLaunch(W, tx, ty, by) {
   if (S.trek) return "The explorers are already out.";
   const h = homeOf(W), d = Math.hypot(tx - h.x, ty - h.y);
   if (d < 18) return "Too close. Pick a place farther away."; if (d > 240) return "Too far for one trip.";
-  if (S.res.food < 24) return "Not enough food to pack. The explorers need 24.";
+  if (resOf(S, homeTown(W)).food < 24) return "Not enough food to pack. The explorers need 24.";
   const T = dryNear(tx, ty); if (!T) return "That is open water. Pick land.";
   const score = p => (p.role === "scout" ? 3 : 0) + (p.trait === "curious" ? 2 : p.trait === "early riser" || p.trait === "hard worker" ? 1 : 0);
   const pool = S.people.filter(p => !p.pioneer && !p.watch && !p.trek && !p.carry && !p.asleep && !p.inside && p.state !== "bed" && p.state !== "sleep" && p.role !== "build");
@@ -992,7 +1029,7 @@ function trekLaunch(W, tx, ty, by) {
   const back = legs.slice(0, L - 1).reverse().map(q => ({ x: q.x, y: q.y, k: "back" })).concat([{ x: h.x, y: h.y, k: "home" }]);
   const dir = compass(T.x - h.x, T.y - h.y), name = dir[0].toUpperCase() + dir.slice(1) + "ern Expedition";
   S.trek = { name: name.replace("north-ern", "North-eastern").replace(/ern Expedition$/, "ern Expedition"), dir, members: mem.map(p => p.id), hx: h.x, hy: h.y, tx: T.x, ty: T.y, path: [...legs, ...looks, ...back], i: 0, rest: 0, restAct: "", at: S.tick, found: [], stuck: 0, sk: 60, bd: 1e9, by, far: Math.round(d) };
-  S.res.food -= 24;
+  resOf(S, homeTown(W)).food -= 24;
   for (const p of mem) { p.obj = null; p.carry = null; p.job = null; p.pack = true; p.trek = 1; p.state = "trek"; p.sit = false; p.inside = false; p.asleep = false; p.act = "Setting out on an expedition"; }
   addLog(W, mem.map(p => p.name).join(", ") + " set out to the " + dir + " with food for the road (" + Math.round(d) + " tiles). " + (by === "mayor" ? "The Mayor asked them to." : "They could not sit still any longer."));
   W.events.push({ k: "trek", what: "start", dir });
@@ -1004,7 +1041,7 @@ function trekFinish(W) {
   const mem = S.people.filter(p => T.members.includes(p.id));
   for (const p of mem) { p.trek = 0; p.pack = false; p.sit = false; p.state = "idle"; p.t = 1; p.act = "Back home"; }
   const hrs = Math.max(.1, (S.tick - T.at) / 14400), n = T.found.length;
-  S.res.food = Math.min(capOf(W), S.res.food + 6 * mem.length);
+  addRes(W, homeTown(W), "food", 6 * mem.length);
   addLog(W, "The " + T.name + " is back after " + hrs.toFixed(1) + " hours. " + (n ? "They found " + n + " wonder" + (n > 1 ? "s" : "") + "." : "No wonders this time, but they know the land better now.") + " They brought back berries and stories.");
   W.events.push({ k: "trek", what: "end", n });
   S.lastTrek = S.tick; S.trek = null;
@@ -1046,7 +1083,7 @@ function trekStep(W, p, H) {
 }
 const TREK_TALES = ["% saw deer drinking at a stream.", "The explorers crossed a stream and refilled their water.", "A storm of birds rose from a meadow as the explorers passed.", "% found wild berries and everyone ate well.", "Rain came. The explorers waited under a rock.", "The explorers carved a mark into a tree so they can find the way back."];
 function trekAI(W, H) {
-  const S = W.S; if (S.trek || S.exp || S.phase !== "settled" || S.people.length < 9 || S.res.food < 40 || S.tick < 28800) return;
+  const S = W.S; if (S.trek || S.exp || S.phase !== "settled" || S.people.length < 9 || resOf(S, homeTown(W)).food < 40 || S.tick < 28800) return;
   if (H < 5.6 || H > 9.5 || S.tick < (S.trekRetry || 0)) return;
   if (S.tick - (S.lastTrek || 0) < (S.rumor ? 14400 : 86400)) return;
   const h = homeOf(W); let tx, ty;
@@ -1161,7 +1198,7 @@ function sailFinish(W, bt, hb) {
   const S = W.S, crew = boatCrew(W, bt), d = { dx: hb.pdx || 0, dy: hb.pdy || 1 }, ext = (d.dx ? hb.a : hb.b) / 2, cx = hb.x + hb.a / 2 - d.dx * 0, cy = hb.y + hb.b / 2;
   for (const [i, p] of crew.entries()) { p.trek = 0; p.boat = 0; p.inside = false; p.pack = false; p.state = "idle"; p.t = 1; p.act = "Back from the sea"; p.x = cx + d.dx * (ext + .6 + (hb.ppk || 0)) + d.dy * (i - .5) * .8; p.y = cy + d.dy * (ext + .6 + (hb.ppk || 0)) + d.dx * (i - .5) * .8; }
   const mins = Math.max(1, Math.round((S.tick - bt.at) * DT / 60)), n = bt.found.length;
-  S.res.food = Math.min(capOf(W), S.res.food + 3 * crew.length + 4);
+  addRes(W, homeTown(W), "food", 3 * crew.length + 4);
   if (n || bt.voy < 2 || bt.voy % 5 === 0 || bt.by === "mayor") addLog(W, "The boat is back after " + mins + " minutes. " + (n ? "The sailors found " + n + " wonder" + (n > 1 ? "s" : "") + ". " : "") + "They charted more of the sea and brought home fish.");
   W.events.push({ k: "boat", what: "end", n });
   bt.crew = []; bt.st = "dock"; bt.last = S.tick; bt.voy++; const dk = dockOf(hb); bt.x = dk.x; bt.y = dk.y; bt.trail = []; bt.legs = [];
@@ -1266,7 +1303,16 @@ export function step(W) {
         if (st !== f.stage) { f.stage = st; if (st === 3) { f.left = CROPS[f.crop].yield; } W.events.push({ k: "field", b: f }); }
       }
     }
-    S.eatT += DT; if (S.eatT > 300) { S.eatT = 0; const need = S.people.filter(p => !p.asleep).length; if (S.res.food >= need) { S.res.food -= need; S.hungry = false; } else { S.res.food = 0; if (!S.hungry) addLog(W, "Food is running low. Everyone works a little slower."); S.hungry = true; } }
+    S.eatT += DT; if (S.eatT > 300) {
+      S.eatT = 0;
+      for (const T of (S.towns.length ? S.towns : [null])) {
+        const R = resOf(S, T), need = S.people.filter(p => !p.asleep && !p.pioneer && (!T || townOf(W, p).id === T.id)).length, was = T ? T.hungry : S.hungry;
+        let hung;
+        if (R.food >= need) { R.food -= need; hung = false; } else { R.food = 0; hung = true; if (!was) addLog(W, (S.towns.length > 1 ? "Food is running low in " + T.name + "." : "Food is running low.") + " Everyone works a little slower."); }
+        if (T) T.hungry = hung; else S.hungry = hung;
+      }
+      if (S.towns.length) S.hungry = S.towns.some(t => t.hungry);
+    }
     if (S.rally) { S.rally.t += DT; if (S.rally.t > 120) { addLog(W, "The rally is over. Everyone goes back to their own work."); S.rally = null; } }
     S.roleT -= DT; if (S.roleT <= 0) { S.roleT = 20; assignRoles(W); }
     if (S.tick % 40 === 0) { discoverCheck(W); if (S.boats.length) boatDiscover(W); }
@@ -1274,14 +1320,17 @@ export function step(W) {
     S.boatT -= DT; if (S.boatT <= 0) { S.boatT = 30; boatAI(W, H); }
     for (const bt of S.boats.slice()) boatStep(W, bt, H);
     S.planT -= DT; if (S.planT <= 0) { S.planT = 150; plan(W); }
+    S.marketT -= DT; if (S.marketT <= 0) { S.marketT = 60; marketUpdate(W); }
+    S.tradeT -= DT; if (S.tradeT <= 0) { S.tradeT = 45; tradeAI(W, H); }
     // newcomers
     S.arriveT -= DT;
     if (S.arriveT <= 0) {
       S.arriveT = 60; const n = S.people.length;
-      if (bedsTotal(W) > n && S.res.food >= 12 + n * 2 && !night(H)) {
+      const hid = homeFor(W), hb0 = hid && S.b.find(b => b.id === hid), tn = hb0 ? S.towns.find(t => t.id === hb0.town) || S.towns[0] : null, tR = hb0 ? resOf(S, tn) : S.res, nT = tn ? S.people.filter(q => townOf(W, q).id === tn.id).length : n;
+      if (hid && tR.food >= 12 + nT * 2 && !night(H)) {
         const e = W.trail.find(q => !hidden(W, q.x, q.y)) || { x: 0, y: 0 }, p = newPerson(W, e.x, e.y), cm = camp(W), c = cm ? doorOf(cm) : { x: 0, y: 0 };
-        p.state = "arrive"; p.tx = c.x; p.ty = c.y; p.act = "Arriving in the village"; p.home = homeFor(W); p.role = "wood";
-        S.people.push(p); S.arriveT = (900 + n * 240) * (1 - Math.min(.5, (S.renown || 0) * .05 + wonderBonus(S, "come")));
+        p.state = "arrive"; p.tx = c.x; p.ty = c.y; p.act = "Arriving in the village"; p.home = hid; p.role = "wood";
+        S.people.push(p); S.arriveT = (900 + n * 240) * (tR.food >= capT(W, tn) * .5 ? .6 : 1) * (1 - Math.min(.5, (S.renown || 0) * .05 + wonderBonus(S, "come")));
         addLog(W, p.name + " (" + p.trait + ") arrived and wants to live here.");
         W.events.push({ k: "arrive", p });
         if (!S.rumor && !S.trek && S.people.length >= 7 && rnd(W) < .35) makeRumor(W);
@@ -1331,6 +1380,55 @@ function updateDog(W, H) {
   if (d.t <= 0) { const a = rnd(W) * 6.3, r = .8 + rnd(W) * 1.8; d.tx = ow.x + Math.cos(a) * r; d.ty = ow.y + Math.sin(a) * r; d.t = 1.5 + rnd(W) * 5; d.mode = rnd(W) < .3 ? "sniff" : "trot"; }
   step(d.mode === "sniff" ? .5 : 1.3);
 }
+// ---------- the market: prices follow supply and demand, villagers carry goods between settlements ----------
+const ratioOf = (W, T, k) => resOf(W.S, T)[k] / capT(W, T);
+const townPop = (W, T) => W.S.people.filter(p => !p.pioneer && townOf(W, p).id === T.id).length;
+// what a settlement would pay for 1,000 units: little when the storehouse is full, a lot when it is nearly empty
+export function localPrice(W, T, k) {
+  const R = resOf(W.S, T), cap = capT(W, T), want = k === "food" ? Math.max(cap * .35, townPop(W, T) * 10) : cap * .4;
+  return Math.max(.25, Math.min(4, Math.pow(want / Math.max(R[k], want * .05), .8)));
+}
+function marketUpdate(W) {
+  const S = W.S; if (!S.towns.length) return;
+  for (const k of KINDS) { let sum = 0; for (const T of S.towns) sum += localPrice(W, T, k); const avg = sum / S.towns.length; S.price[k] = Math.round((S.price[k] + (avg - S.price[k]) * .3) * 1000) / 1000; }
+}
+function tradeAbort(W, p) { const S = W.S, t = p.trade; p.trade = null; if (!t) return; const from = S.towns.find(x => x.id === t.from); if (from) addRes(W, from, t.k, t.amt); }
+function tradeDeliver(W, p) {
+  const S = W.S, t = p.trade; p.trade = null; if (!t) return;
+  const to = S.towns.find(x => x.id === t.to), from = S.towns.find(x => x.id === t.from);
+  if (!to || !from) { if (from) addRes(W, from, t.k, t.amt); return; }
+  addRes(W, to, t.k, t.amt);
+  const pay = t.amt * t.price / 1000, fee = pay * .05, r4 = v => Math.round(v * 10000) / 10000;
+  to.coin = r4((to.coin || 0) - pay); from.coin = r4((from.coin || 0) + pay - fee);
+  const tr = S.trade; tr.n++; tr.coins = r4(tr.coins + pay); tr.tax = r4(tr.tax + fee); tr.vol[t.k] += t.amt;
+  const key = Math.min(t.from, t.to) + "-" + Math.max(t.from, t.to), n = S.pact[key] = (S.pact[key] || 0) + 1, word = { food: "food", wood: "wood", stone: "stone" }[t.k];
+  if (n === 1) { addLog(W, from.name + " sent " + word + " to " + to.name + ", and " + to.name + " paid for it. The two villages traded for the first time."); milestone(W, "trade1", "Trade Begins", "Villagers carry goods from the village that has plenty to the village that is short. The market sets the prices."); }
+  else if (n === 12) addLog(W, from.name + " and " + to.name + " trade often now. People greet each other on the road.");
+  else if (n === 40) addLog(W, from.name + " and " + to.name + " are close friends. Nobody remembers a quarrel between them.");
+  W.events.push({ k: "trade", x: p.x, y: p.y, type: t.k, amt: t.amt });
+}
+// every minute or so: where one settlement is short of something and another has plenty, a villager carries a load across
+function tradeAI(W, H) {
+  const S = W.S; if (S.towns.length < 2 || H < 6.5 || H > 16) return;
+  const flying = S.people.filter(p => p.trade);
+  for (const k of KINDS) {
+    let buyer = null, br = .3;
+    for (const T of S.towns) { const r = ratioOf(W, T, k); if (r < br && (T.coin || 0) > -3 && !flying.some(p => p.trade.to === T.id && p.trade.k === k)) { br = r; buyer = T; } }
+    if (!buyer) continue;
+    let seller = null, sr = .55;
+    for (const T of S.towns) { if (T === buyer) continue; const r = ratioOf(W, T, k), d = Math.hypot(T.x - buyer.x, T.y - buyer.y); if (r > sr && r - br >= .3 && d < 160) { sr = r; seller = T; } }
+    if (!seller) continue;
+    const sR = resOf(S, seller), bR = resOf(S, buyer), amt = Math.min(24, Math.floor(sR[k] - capT(W, seller) * .45), Math.floor(capT(W, buyer) * .5 - bR[k]));
+    if (amt < 6) continue;
+    const cand = S.people.filter(p => !p.pioneer && !p.watch && !p.trek && !p.carry && !p.trade && !p.asleep && !p.inside && p.role !== "build" && (p.state === "idle" || p.state === "wait") && townOf(W, p).id === seller.id);
+    if (!cand.length) continue;
+    const p = cand[(rnd(W) * cand.length) | 0], dest = S.b.find(b => b.done && b.town === buyer.id && b.type === "store") || hallOf(W, buyer); if (!dest) continue;
+    const d = doorOf(dest), price = Math.round((localPrice(W, seller, k) + localPrice(W, buyer, k)) / 2 * 1000) / 1000;
+    sR[k] -= amt; p.trade = { to: buyer.id, from: seller.id, k, amt, price };
+    p.obj = null; p.job = "trade"; p.state = "go"; p.goT = 0; p.pack = true; p.tx = d.x + (rnd(W) - .5); p.ty = d.y; p.act = "Carrying " + amt + " " + k + " to " + buyer.name;
+    return;
+  }
+}
 // ---------- new settlements: some villagers leave to found a village far away ----------
 function townSite(W) {
   const S = W.S; let best = null;
@@ -1365,7 +1463,9 @@ function expeditions(W) {
       const site = findSite(W, "outpost", lead.x, lead.y, 0, 9);
       if (!site) { if (late) { for (const p of mem) { p.state = "idle"; p.pioneer = 0; } S.exp = null; S.lastFound = S.tick; addLog(W, "The pioneers found no good place and came back."); } return; }
       const id = S.towns.length + 1, name = e.name, b = addBuilding(W, "outpost", site.x, site.y, "ai"); b.done = true;
-      S.towns.push({ id, name, hall: b.id, x: b.x + 1.5, y: b.y + 1.5, at: S.tick }); b.town = id;
+      const src0 = S.towns.find(t => t.name === e.from) || S.towns[0], SR0 = resOf(S, src0), pack = { food: 0, wood: 0, stone: 0 };
+      for (const [k, v] of [["food", 30], ["wood", 24], ["stone", 6]]) { const q = Math.max(0, Math.min(v, Math.floor(SR0[k] * .5))); SR0[k] -= q; pack[k] = q; }
+      S.towns.push({ id, name, hall: b.id, x: b.x + 1.5, y: b.y + 1.5, at: S.tick, coin: 0, hungry: false, res: pack }); b.town = id;
       for (const ch of W.chunks.values()) for (const tr of ch.trees) if (!tr.felled && Math.hypot(tr.x - b.x - 1.5, tr.y - b.y - 1.5) < 3.5) { tr.felled = true; tr.cleared = true; ch.ovDirty = true; }
       reveal(W, b.x + 1.5, b.y + 1.5, 12);
       for (const p of mem) { p.home = b.id; p.state = "idle"; p.pioneer = 0; p.t = 1 + rnd(W) * 2; }
@@ -1377,9 +1477,10 @@ function expeditions(W) {
     return;
   }
   if (S.phase !== "settled") return;
-  const need = 12 + 8 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0);
-  if (n < need || since < 288000) return; // at least ~20 hours between foundings
-  const site = townSite(W); if (!site) { S.lastFound = S.tick - 200000; return; }
+  // a full storehouse means the village has outgrown its valley: new settlements follow sooner (at least ~2.5 to 5 hours apart)
+  const need = 10 + 5 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0), full = S.towns.some(t => KINDS.filter(k => resOf(S, t)[k] >= capT(W, t) * .8).length >= 2), gap = full ? 36000 : 72000;
+  if (n < need || since < gap || S.towns.length >= 10) return;
+  const site = townSite(W); if (!site) { S.lastFound = S.tick - gap + 12000; return; }
   const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch && !p.trek);
   if (cand.length < 6) return;
   const mem = cand.slice(-3), used = new Set(S.towns.map(t => t.name)), names = TOWN_NAMES.filter(q => !used.has(q)), name = names[(rnd(W) * names.length) | 0] || "Newtown " + (S.towns.length + 1);
@@ -1392,7 +1493,7 @@ function arrive(W) {
   const S = W.S, t = S.target; S.phase = "settled";
   S.towns = [];
   const cm = addBuilding(W, "camp", t.x - 1.5, t.y - 1.5, "ai"); cm.done = true;
-  S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: S.tick }); cm.town = 1; S.lastFound = S.tick;
+  S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: S.tick, coin: 0, hungry: false }); cm.town = 1; S.lastFound = S.tick;
   S.wagon.x = cm.x + 4.2; S.wagon.y = cm.y + 1.0; S.wagon.alongY = false; S.wagon.path = null; S.ox.x = S.wagon.x + 2.3; S.ox.y = S.wagon.y + .8;
   for (const ch of W.chunks.values()) { for (const tr of ch.trees) if (Math.hypot(tr.x - t.x, tr.y - t.y) < 4.6 && !tr.felled) { tr.felled = true; tr.cleared = true; ch.ovDirty = true; } for (const r of ch.rocks) if (Math.hypot(r.x - t.x, r.y - t.y) < 3.5) r.stone = 0; for (const b of ch.bushes) if (Math.hypot(b.x - t.x, b.y - t.y) < 3.5) b.gone = true; }
   reveal(W, t.x, t.y, 13);
@@ -1433,7 +1534,7 @@ export function act(W, a) {
   if (a.k === "cancel") {
     const b = S.b.find(q => q.id === a.id); if (!b || b.done || b.type === "camp") return "Can't cancel that.";
     const T = TYPES[b.type];
-    const c0 = b.cost0 || TYPES[b.type].cost; for (const k in c0) S.res[k] += (c0[k] - (b.need[k] || 0));
+    const c0 = b.cost0 || TYPES[b.type].cost; { const TR = townRes(S, b.town); for (const k in c0) TR[k] += (c0[k] - (b.need[k] || 0)); }
     occupy(W, b, false); S.b.splice(S.b.indexOf(b), 1); for (const p of S.people) if (p.obj && p.obj.b === b.id) { p.obj = null; p.state = "idle"; p.t = .5; }
     addLog(W, "The Mayor cancelled " + an(T.name) + "."); W.events.push({ k: "removed", b }); S.rev++; return null;
   }

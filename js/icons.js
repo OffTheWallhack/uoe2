@@ -13,6 +13,8 @@ const I = {
   flag: ["............", "..kkkkkkk...", "..kryrrrrk..", "..krrryrk...", "..krrrrrrk..", "..kkkkkkk...", "..kh........", "..kh........", "..kh........", "..kh........", "..kk........", "............"],
   menu: ["............", "............", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", ".keeeeeeeek.", ".kkkkkkkkkk.", "............", "............", "............"],
   book: ["............", "..kkkkkkkk..", ".kRrrrrrrRk.", ".kRrykkyrRk.", ".kRrrrrrrRk.", ".kRrykkyrRk.", ".kRrrrrrrRk.", ".kReeeeeeek.", ".kkkkkkkkkk.", "............", "............", "............"],
+  coin: ["............", "....kkkk....", "...kYyyYk...", "..kYyYYyYk..", "..kyYykyYk..", "..kyYykyYk..", "..kYyYYyYk..", "...kYyyYk...", "....kkkk....", "............", "............", "............"],
+  market: ["............", ".kkkkkkkkkk.", ".krrerrerrk.", ".krrerrerrk.", ".kkkkkkkkkk.", ".kh......hk.", ".kh.yy.y.hk.", ".khkkkkkkhk.", ".khWwWwWwhk.", ".kkkkkkkkkk.", "............", "............"],
   scroll: ["............", ".kkkkkkkkk..", "kWeeeeeeeWk.", ".keknnnkek..", ".keeeeeeek..", ".keknnnnek..", ".keeeeeeek..", ".keknnnkek..", "kWeeeeeeeWk.", ".kkkkkkkkk..", "............", "............"],
   plus: ["............", "............", ".....kk.....", ".....ee.....", ".....ee.....", "..kkeeeekk..", "..kkeeeekk..", ".....ee.....", ".....ee.....", ".....kk.....", "............", "............"],
   minus: ["............", "............", "............", "............", "............", "..keeeeeek..", "..keeeeeek..", "............", "............", "............", "............", "............"],
