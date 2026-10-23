@@ -320,6 +320,7 @@ export const capOf = W => 200 + 300 * W.S.b.filter(b => b.done && b.type === "st
 export const camp = W => W.S.b.find(b => b.type === "camp");
 export function bedsTotal(W) { let n = 0; for (const b of W.S.b) if (b.done && TYPES[b.type].beds) n += TYPES[b.type].beds; return n; }
 function homeFor(W) { const used = {}; for (const p of W.S.people) used[p.home] = (used[p.home] || 0) + 1; for (const b of W.S.b) { const T = TYPES[b.type]; if (b.done && T.beds && (used[b.id] || 0) < T.beds) return b.id; } return 0; }
+const an = n => (/^[AEIOU]/.test(n) ? "an " : "a ") + n;
 const center = b => ({ x: b.x + b.a / 2, y: b.y + b.b / 2 });
 export const isSite = b => !b.done || !!b.upTo;
 function workSpot(W, b) {
@@ -533,7 +534,7 @@ function setOver(W, b, val) {
 }
 function finishUpgrade(W, s) {
   const S = W.S; s.type = s.upTo; s.upTo = null; s.prog = 1; delete s.need;
-  addLog(W, "A house was rebuilt into a " + TYPES[s.type].name + ".");
+  addLog(W, "A house was rebuilt into " + an(TYPES[s.type].name) + ".");
   W.events.push({ k: "built", b: s });
 }
 function finishBuilding(W, s) {
@@ -610,7 +611,7 @@ function plan(W) {
     if (!afford(want)) continue;
     const site = findSite(W, want, anchor.x, anchor.y, r0, r1); if (!site) continue;
     addBuilding(W, want, site.x, site.y, "ai");
-    addLog(W, "The villagers started building a " + TYPES[want].name + ".");
+    addLog(W, "The villagers started building " + an(TYPES[want].name) + ".");
     return;
   }
 }
@@ -739,14 +740,14 @@ export function act(W, a) {
   }
   if (a.k === "place") {
     const sh = planShape(W, a.type, a.x, a.y, true); if (sh.err) return sh.err;
-    addBuilding(W, a.type, sh.x, sh.y, "mayor", sh); addLog(W, "The Mayor ordered a " + TYPES[a.type].name + "."); S.roleT = 0; S.rev++; return null;
+    addBuilding(W, a.type, sh.x, sh.y, "mayor", sh); addLog(W, "The Mayor ordered " + an(TYPES[a.type].name) + "."); S.roleT = 0; S.rev++; return null;
   }
   if (a.k === "cancel") {
     const b = S.b.find(q => q.id === a.id); if (!b || b.done || b.type === "camp") return "Can't cancel that.";
     const T = TYPES[b.type];
     const c0 = b.cost0 || TYPES[b.type].cost; for (const k in c0) S.res[k] += (c0[k] - (b.need[k] || 0));
     occupy(W, b, false); S.b.splice(S.b.indexOf(b), 1); for (const p of S.people) if (p.obj && p.obj.b === b.id) { p.obj = null; p.state = "idle"; p.t = .5; }
-    addLog(W, "The Mayor cancelled a " + T.name + "."); W.events.push({ k: "removed", b }); S.rev++; return null;
+    addLog(W, "The Mayor cancelled " + an(T.name) + "."); W.events.push({ k: "removed", b }); S.rev++; return null;
   }
   if (a.k === "crop") {
     const b = S.b.find(q => q.id === a.id); if (!b || b.type !== "field" || !CROPS[a.crop]) return "Not a field.";
