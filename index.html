@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" id="vpmeta" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#2a1c10">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="UoE II">
@@ -74,6 +74,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 .vtown .meta,.sheet .meta{font-size:12px;color:var(--muted);margin:2px 0}
 .vlist{list-style:none;padding:0!important;margin:0}.vlist li{font-size:13px;padding:1px 0}.vlist b{font:13px var(--pix);color:var(--gold);display:inline-block;min-width:24px}
 .vlist.cols{columns:2;column-gap:12px}
+.uisz{display:flex;gap:5px;flex-wrap:wrap}.uisz .btn{min-width:52px;font-family:var(--pix);font-size:13px}
 .r{display:flex;align-items:center;gap:5px;padding:2px 9px 2px 4px;border-right:1px solid rgba(0,0,0,.45);box-shadow:1px 0 0 rgba(255,226,150,.12);font:16px/1 var(--pix);color:#f8ecc8;text-shadow:0 1px 0 #000;white-space:nowrap}
 .r small{font:10px var(--body);color:var(--muted);text-shadow:none}
 .r.low b{color:#ff9a7a}
@@ -145,7 +146,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   .cmd{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:56px 1fr;gap:6px}
   .sel{grid-column:1 / -1;padding:5px 8px}
   .sel h3{font-size:13.5px}.sel p{font-size:12px;margin:0}
-  .grid{grid-template-columns:repeat(4,46px);grid-auto-rows:46px;padding:3px;overflow-y:auto;overscroll-behavior:contain}
+  .grid{grid-template-columns:repeat(auto-fill,46px);grid-auto-rows:46px;padding:3px;overflow-y:auto;overscroll-behavior:contain}
   .cb{width:46px;height:46px}
   #mm{width:150px;height:75px}
   .banner{max-width:calc(100% - 70px);left:calc(50% - 22px)}
@@ -155,6 +156,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   .vstats{grid-template-columns:repeat(5,1fr)}.vs b{font-size:13px}
 }
 @media (max-width:720px) and (max-height:560px){:root{--cmd:120px}}
+@media (max-width:380px){#mm{width:112px;height:56px}.mmwrap{padding:2px}.glab{font-size:9px}}
 @media (min-width:721px) and (max-width:1100px){.grid{grid-template-columns:repeat(6,48px)}}
 </style>
 </head>
@@ -188,6 +190,8 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   <section class="sheet carved left" id="vilsheet" hidden><h2>Village</h2><button class="btn x" data-close="vilsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><div id="vilbody"></div></section>
   <section class="sheet carved" id="menusheet" hidden><h2>Menu</h2><button class="btn x" data-close="menusheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
     <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" id="fsbtn"><img class="pi" data-ic="full" alt="">Full screen</button></div>
+    <h4>Interface size</h4>
+    <div class="uisz" id="uisz"></div>
     <p id="fshint" class="meta" hidden>On iPhone: tap Share, then “Add to Home Screen”. The game then opens full screen like an app.</p>
     <div id="dev" hidden>
       <h4>Test world</h4>

@@ -184,12 +184,12 @@ function fillVillage() {
 const labelEls = new Map();
 function townLabels() {
   const S = W.S, box = $("labels"), on = S.phase === "settled"; if (!on) { box.hidden = true; return; } box.hidden = false;
-  const Z = view.zoom, cvr = cv.getBoundingClientRect(), stg = $("stage").getBoundingClientRect();
+  const Z = view.zoom, L0 = cv.offsetLeft, T0 = cv.offsetTop, CWd = cv.clientWidth, CHd = cv.clientHeight;
   for (const T of S.towns || []) {
     let e = labelEls.get(T.id); if (!e) { e = document.createElement("div"); e.className = "tl"; box.appendChild(e); labelEls.set(T.id, e); }
     e.textContent = T.name;
-    const [x, y] = G.screenOf(T.x, T.y), lx = x + cvr.left - stg.left, ly = y + cvr.top - stg.top - Math.max(18, 30 * Math.min(Z, 3));
-    const vis = Z < 3 && lx > -60 && ly > cvr.top - stg.top - 10 && lx < cvr.width + 60 && ly < cvr.bottom - stg.top && !M.hidden(W, T.x, T.y);
+    const [x, y] = G.screenOf(T.x, T.y), lx = x + L0, ly = y + T0 - Math.max(18, 30 * Math.min(Z, 3) / (view.ui || 1));
+    const vis = Z < 3 && lx > -60 && ly > T0 - 10 && lx < CWd + 60 && ly < T0 + CHd && !M.hidden(W, T.x, T.y);
     e.hidden = !vis; if (vis) { e.style.transform = "translate(" + Math.round(lx) + "px," + Math.round(ly) + "px) translate(-50%,-100%)"; e.classList.toggle("sm", Z >= 2); }
   }
 }
@@ -208,7 +208,7 @@ function fitWorld() {
 }
 // ---------- input ----------
 const cv = $("cv"), tip = $("tip"), ptrs = new Map(); let down = null, pinch = null, tipTimer = 0;
-function showTip(info, cx, cy) { if (!info) { tip.hidden = true; return; } tip.textContent = ""; const b = document.createElement("b"); b.textContent = info.t; tip.append(b, document.createTextNode(info.d)); tip.hidden = false; const r = $("stage").getBoundingClientRect(); tip.style.left = M.clamp(cx - r.left + 14, 4, r.width - tip.offsetWidth - 4) + "px"; tip.style.top = M.clamp(cy - r.top + 14, 4, r.height - tip.offsetHeight - 4) + "px"; }
+function showTip(info, cx, cy) { if (!info) { tip.hidden = true; return; } tip.textContent = ""; const b = document.createElement("b"); b.textContent = info.t; tip.append(b, document.createTextNode(info.d)); tip.hidden = false; const st = $("stage"), r = st.getBoundingClientRect(), f = r.width / (st.clientWidth || r.width) || 1; tip.style.left = M.clamp((cx - r.left) / f + 14, 4, st.clientWidth - tip.offsetWidth - 4) + "px"; tip.style.top = M.clamp((cy - r.top) / f + 14, 4, st.clientHeight - tip.offsetHeight - 4) + "px"; }
 cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; down = null; } else down = { x: e.clientX, y: e.clientY, moved: false }; });
 cv.addEventListener("pointermove", e => {
   const p = ptrs.get(e.pointerId);
@@ -250,6 +250,23 @@ $("logbtn").addEventListener("click", () => { sheet("logsheet"); renderLog(true)
 $("menubtn").addEventListener("click", () => sheet("menusheet"));
 for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => $(b.dataset.close).hidden = true);
 const canFS = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+// ---- interface size: phones get a narrower layout viewport (everything scales, layout adapts),
+// desktop browsers ignore that, so there the page is zoomed. The map keeps its own zoom.
+const UI_SIZES = [.9, 1, 1.15, 1.3, 1.5];
+let uiScale = 1.3; try { const v = parseFloat(localStorage.getItem("uoe2-ui")); if (v >= .8 && v <= 1.6) uiScale = v; } catch (e) { }
+const touchDev = matchMedia("(pointer:coarse)").matches;
+function applyUI() {
+  if (touchDev) {
+    const sw = Math.min(screen.width, screen.height), sh = Math.max(screen.width, screen.height), land = innerWidth > innerHeight, w = Math.round((land ? sh : sw) / uiScale);
+    $("vpmeta").setAttribute("content", "width=" + w + ",initial-scale=" + uiScale + ",minimum-scale=" + uiScale + ",maximum-scale=" + uiScale + ",user-scalable=no,viewport-fit=cover");
+    view.ui = uiScale;
+  } else { document.documentElement.style.zoom = uiScale === 1 ? "" : String(uiScale); view.ui = uiScale; }
+  const box = $("uisz"); box.textContent = "";
+  for (const v of UI_SIZES) { const b = document.createElement("button"); b.className = "btn" + (Math.abs(v - uiScale) < .01 ? " on" : ""); b.textContent = Math.round(v * 100) + "%"; b.addEventListener("click", () => { uiScale = v; try { localStorage.setItem("uoe2-ui", String(v)); } catch (e) { } applyUI(); }); box.appendChild(b); }
+  requestAnimationFrame(() => G.resize()); setTimeout(() => G.resize(), 300);
+}
+applyUI();
+addEventListener("orientationchange", () => setTimeout(applyUI, 250));
 $("fsbtn").addEventListener("click", () => {
   const d = document, el = d.documentElement;
   if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);

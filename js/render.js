@@ -327,7 +327,7 @@ export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, se
 let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
 export function init(canvas) { cv = canvas; ctx = cv.getContext("2d"); }
 export function resize() {
-  const r = cv.getBoundingClientRect(); const Z = view.zoom; R = Z >= 1 ? Z : 1; k = Z >= 1 ? 1 : Z;
+  const r = cv.getBoundingClientRect(); const Z = view.zoom, u = (view.ui || 1) / (r.width / (cv.clientWidth || r.width) || 1); R = (Z >= 1 ? Z : 1) / u; k = Z >= 1 ? 1 : Z; // u: interface scale (CSS px are u screen px)
   Vw = Math.max(60, Math.floor(r.width / R)); Vh = Math.max(60, Math.floor(r.height / R)); cv.width = Vw; cv.height = Vh;
   const g = ctx.createRadialGradient(Vw / 2, Vh / 2, Math.min(Vw, Vh) * .3, Vw / 2, Vh / 2, Math.hypot(Vw, Vh) * .58); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.45)");
   vig = document.createElement("canvas"); vig.width = Vw; vig.height = Vh; const x = vig.getContext("2d"); x.fillStyle = g; x.fillRect(0, 0, Vw, Vh);
@@ -337,7 +337,7 @@ function tint(h) { for (let i = 0; i < STOPS.length - 1; i++) { const a = STOPS[
 export function nightOf(h) { const t = tint(h); return M.clamp((1 - (t[0] + t[1] + t[2]) / 765) / .45, 0, 1); }
 const rain = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), s: .7 + Math.random() * .6 }));
 function px(c, x, y, w, h, col, a) { c.fillStyle = col; if (a !== undefined) c.globalAlpha = a; c.fillRect(x, y, w, h); if (a !== undefined) c.globalAlpha = 1; }
-export function screenOf(x, y) { const Z = view.zoom; return [(sx(x, y) - vx0) * Z, (gyH(x, y) - vy0) * Z]; }
+export function screenOf(x, y) { const q = k * cv.clientWidth / Vw; return [(sx(x, y) - vx0) * q, (gyH(x, y) - vy0) * q]; }
 export function frame(now, rdt) {
   T = now / 1000; if (!W) return;
   const S = W.S, clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month);
