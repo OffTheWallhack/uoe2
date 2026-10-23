@@ -297,6 +297,7 @@ const MODELS={
   longhouse:{k:"hut",a:6,b:3,H:8,rr:14,ridge:"x",wall:"wood",roof:"thatch"},
   tavern:{k:"hut",a:4,b:3,H:12,rr:9,ridge:"x",wall:"cream",roof:"brown"},
   chapel:{k:"hut",a:4,b:3,H:13,rr:10,ridge:"x",wall:"cream",roof:"slate",nochim:true},
+  harbor:{k:"hut",a:3,b:2,H:9,rr:7,ridge:"x",wall:"wood",roof:"slate",nowin:true,nochim:true},
   shed:{k:"hut",a:2,b:1,H:7,rr:5,ridge:"x",wall:"wood",roof:"thatch",nowin:true,nochim:true},
 };
 export function buildingSprites(season){

@@ -3,7 +3,7 @@
 // If a file assets/wonders/<kind>.png exists it replaces the placeholder (anchor = bottom centre).
 // ============================================================
 import { ih } from "./sim.js";
-export const WSIZE = { stones: [56, 36], falls: [48, 60], elder: [64, 72], ruins: [60, 50], spring: [56, 30], crystal: [52, 48], bones: [60, 34], fairy: [44, 30], shrine: [36, 44], obelisk: [22, 60], lighthouse: [30, 72], arch: [64, 52] };
+export const WSIZE = { pyramid: [84, 64], tisland: [60, 60], wtemple: [56, 80], stones: [56, 36], falls: [48, 60], elder: [64, 72], ruins: [60, 50], spring: [56, 30], crystal: [52, 48], bones: [60, 34], fairy: [44, 30], shrine: [36, 44], obelisk: [22, 60], lighthouse: [30, 72], arch: [64, 52] };
 const rgb = (c, m = 1) => [Math.min(255, c[0] * m), Math.min(255, c[1] * m), Math.min(255, c[2] * m)];
 const STONE = [150, 148, 142], MOSS = [88, 126, 64], WOOD = [118, 80, 52], SAND = [214, 196, 150];
 function mk(w, h) {
@@ -13,15 +13,44 @@ function mk(w, h) {
   // lit from top-left: left edge light, right edge dark, noise for texture
   const blob = (cx, cy, rx, ry, col, seed = 1) => { for (let j = -ry; j <= ry; j++) for (let i = -rx; i <= rx; i++) { const q = (i * i) / (rx * rx) + (j * j) / (ry * ry); if (q > 1) continue; const L = 1.08 - (i / rx) * .2 - (j / ry) * .22 - q * .12 + (ih(i + seed * 37, j + seed * 11) - .5) * .12; put(cx + i, cy + j, rgb(col, L)); } };
   const slab = (x0, y0, ww, hh, col, seed = 1) => { for (let j = 0; j < hh; j++) for (let i = 0; i < ww; i++) { const L = 1.1 - (i / ww) * .34 - (j / hh) * .08 + (ih(i + seed * 31, j * 3 + seed) - .5) * .12; put(x0 + i, y0 + j, rgb(col, L)); } };
-  const finish = () => {
+  const finish = (anchor) => {
     const al = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) al[i] = d[i * 4 + 3] ? 1 : 0;
     for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const i = y * w + xx; if (!al[i]) continue; if (xx === 0 || y === 0 || xx === w - 1 || y === h - 1 || !al[i - 1] || !al[i + 1] || !al[i - w] || !al[i + w]) { const o = i * 4; d[o] *= .56; d[o + 1] *= .54; d[o + 2] *= .58; } }
-    x.putImageData(img, 0, 0); return { canvas: c, ax: w >> 1, ay: h - 4, w, h };
+    x.putImageData(img, 0, 0); return { canvas: c, ax: w >> 1, ay: anchor === undefined ? h - 4 : anchor, w, h };
   };
   const shadow = (cx, cy, rx, ry) => { for (let j = -ry; j <= ry; j++) for (let i = -rx; i <= rx; i++) if ((i * i) / (rx * rx) + (j * j) / (ry * ry) <= 1) put(cx + i, cy + j, [0, 0, 0], 44); };
-  return { w, h, put, rect, blob, slab, finish, shadow };
+  // an isometric box: base diamond bottom vertex at (cx, by), half-width hw, half-height hh (2:1), height ht
+  const iso = (cx, by, hw, hh, ht, cL, cR, cT, seed = 1) => {
+    const cy = by - hh, ty = cy - ht;
+    for (let y = ty - hh; y <= by; y++) for (let xx = cx - hw; xx <= cx + hw; xx++) {
+      const dx = xx - cx, ax = Math.abs(dx) / hw; let col = null; const n = (ih(xx * 3 + seed, y * 5) - .5) * .1;
+      if (ax <= 1 && Math.abs(y - ty) <= hh * (1 - ax)) col = rgb(cT, 1.06 + n);
+      else { const yt = ty + hh * (1 - ax), yb = cy + hh * (1 - ax); if (y > yt && y <= yb) col = rgb(dx < 0 ? cL : cR, (dx < 0 ? 1.04 - ax * .12 : .96 - ax * .1) + n + ((y - yt) % 7 === 0 ? -.06 : 0)); }
+      if (col) put(xx, y, col);
+    }
+  };
+  return { w, h, put, rect, blob, slab, iso, finish, shadow };
 }
 const DRAW = {
+  pyramid(g) { const { w, h } = g, cx = 42, by = h - 3; g.shadow(cx, by - 6, 38, 10);
+    const GOLD = [214, 176, 98]; let hw = 38, y = by;
+    for (let i = 0; i < 5; i++) { const hh = hw / 2, ht = i === 4 ? 5 : 6; g.iso(cx, y, hw, hh, ht, rgb(GOLD, 1.02), rgb(GOLD, .74), rgb(GOLD, 1.18), i + 1); const nh = (hw - 6) / 2; y = y - ht - (hh - nh); hw -= 6; }
+    g.rect(cx - 9, by - 15, 7, 9, [40, 28, 24]); g.rect(cx - 10, by - 16, 9, 1, [250, 226, 150]); g.rect(cx - 10, by - 16, 1, 10, [250, 226, 150]);
+    for (let k = 0; k < 4; k++) g.rect(cx - 11 + k, by - 6 + k, 16 - k * 2, 1, rgb(GOLD, 1.16));
+    g.rect(cx - 1, 2, 2, 5, [250, 236, 160]); },
+  tisland(g) { const { w, h } = g, cx = 30, by = h - 3; g.shadow(cx, by - 8, 28, 8);
+    const MARB = [236, 232, 220]; g.iso(cx, by, 27, 13, 4, rgb(MARB, .98), rgb(MARB, .74), rgb(MARB, 1.06), 2); g.iso(cx, by - 4, 23, 11, 3, rgb(MARB, .98), rgb(MARB, .74), rgb(MARB, 1.06), 3);
+    const cyT = by - 4 - 11 - 3, col = (x, y) => { g.slab(x - 1, y - 18, 3, 18, MARB, x); g.rect(x - 2, y - 19, 5, 2, rgb(MARB, 1.05)); g.rect(x - 2, y - 1, 5, 2, rgb(MARB, .85)); };
+    col(cx, cyT - 8); col(cx - 17, cyT); col(cx + 17, cyT); col(cx - 9, cyT + 4); col(cx + 9, cyT + 4); col(cx, cyT + 8);
+    const rc = cyT - 18; g.iso(cx, rc + 10, 21, 10, 3, [70, 118, 150], [44, 82, 112], [100, 148, 184], 4);
+    g.blob(cx, rc - 5, 7, 6, [236, 196, 90], 5); g.rect(cx - 1, rc - 13, 2, 5, [250, 226, 140]); },
+  wtemple(g) { const { w, h } = g, cx = 28; g.shadow(cx, h - 8, 24, 6);
+    const WD = [92, 64, 46], RF = [150, 56, 44]; let by = h - 4, hw = 22;
+    g.iso(cx, by, 24, 12, 4, rgb([120, 112, 100], 1), rgb([120, 112, 100], .75), rgb([140, 132, 118], 1.05), 1); by -= 4;
+    for (let t = 0; t < 3; t++) { const hh = hw / 2; g.iso(cx, by, hw - 6, (hw - 6) / 2, 9, rgb(WD, 1.06), rgb(WD, .76), rgb(WD, 1.1), t + 2); for (let k = 0; k < 3; k++) g.rect(cx - (hw - 8) + 2 + k * (hw - 8) * 2 / 3, by - 14 + 2, 1, 6, [250, 214, 110]);
+      g.iso(cx, by - 9, hw + 2, (hw + 2) / 2, 3, rgb(RF, 1.02), rgb(RF, .72), rgb(RF, 1.1), t + 5); g.put(cx - hw - 2, by - 9 - (hw + 2) / 2 - 1, rgb(RF, 1.2)); g.put(cx + hw + 2, by - 9 - (hw + 2) / 2 - 1, rgb(RF, 1.2));
+      by -= 12 + 1; hw -= 5; }
+    g.rect(cx, by - 8, 1, 10, [60, 44, 34]); g.put(cx, by - 9, [250, 214, 110]); g.rect(cx - 12, by + 20, 2, 3, [250, 214, 110]); g.rect(cx + 11, by + 22, 2, 3, [250, 214, 110]); },
   stones(g) { const { w, h } = g; g.shadow(w / 2, h - 6, 26, 7);
     const pos = [[6, 18, 7, 16], [16, 10, 8, 20], [30, 6, 8, 22], [42, 12, 7, 18], [47, 20, 6, 12], [24, 20, 8, 14], [12, 24, 6, 8]]; pos.forEach(([x, y, ww, hh], i) => { g.slab(x, y + 4, ww, hh, STONE, i); for (let k = 0; k < ww; k++) if (ih(i * 5 + k, 2) < .5) g.put(x + k, y + 3, MOSS); });
     g.slab(18, 20, 18, 4, rgb(STONE, .9), 9); },
@@ -65,12 +94,13 @@ const DRAW = {
     for (let x = 4; x < 60; x++) { const t = (x - 4) / 56, top = 8 + Math.round(Math.pow(Math.abs(t - .5) * 2, 2) * 16), bot = top + 10 + Math.round(Math.abs(t - .5) * 8); for (let y = top; y < bot; y++) g.put(x, y, rgb([196, 156, 112], 1.1 - (y - top) / 14 * .3 - t * .18 + (ih(x, y) - .5) * .1)); }
     g.rect(24, 6, 16, 2, MOSS); g.rect(4, 20, 16, 2, MOSS); },
 };
+const ANCH = { pyramid: 22, tisland: 15, wtemple: 15 }; // distance from the bottom of the canvas up to the footprint centre
 const cache = {}, art = {};
 export function wonderSprites(season) {
   const key = season === "winter" ? "w" : "n"; if (cache[key]) return mergeArt(cache[key]);
   const out = {};
   for (const k of Object.keys(DRAW)) {
-    const [w, h] = WSIZE[k], g = mk(w, h); DRAW[k](g); const s = g.finish();
+    const [w, h] = WSIZE[k], g = mk(w, h); DRAW[k](g); const s = g.finish(ANCH[k] === undefined ? undefined : h - ANCH[k]);
     if (season === "winter") { const x = s.canvas.getContext("2d"), im = x.getImageData(0, 0, w, h), d = im.data; for (let i = 0; i < w * h; i++) { if (!d[i * 4 + 3]) continue; const y = (i / w) | 0, up = i >= w && !d[(i - w) * 4 + 3]; if (up && ih(i, 7) < .8) { d[i * 4] = 240; d[i * 4 + 1] = 244; d[i * 4 + 2] = 250; } } x.putImageData(im, 0, 0); }
     out[k] = s;
   }
@@ -84,4 +114,26 @@ export function loadWonderArt(done) {
     const im = new Image(); im.onload = () => { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; c.getContext("2d").drawImage(im, 0, 0); art[k] = { canvas: c, ax: im.width >> 1, ay: im.height - 4, w: im.width, h: im.height }; if (!--n && done) done(); };
     im.onerror = () => { if (!--n && done) done(); }; im.src = "assets/wonders/" + k + ".png";
   }
+}
+
+// the harbour boat: a small clinker boat with one sail. Drawn facing right; flipped for the other way.
+let boatCache = null;
+export function boatSprites() {
+  if (boatCache) return boatCache;
+  const w = 28, h = 26, c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d"), img = x.createImageData(w, h), d = img.data;
+  const put = (px, py, col) => { if (px < 0 || py < 0 || px >= w || py >= h) return; const o = (py * w + px) * 4; d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255; };
+  for (let py = 0; py < 6; py++) for (let px = 0; px < 22; px++) { const t = px / 21, top = 16 + Math.round(Math.pow(Math.abs(t - .45) * 2, 2.2) * -3 + 0), halfW = 11 - py * .0; const inside = px >= Math.round(py * .9) && px <= 21 - Math.round(py * 1.1); if (!inside) continue; const L = .78 + (px % 5 === 0 ? -.08 : 0) + (py === 0 ? .18 : 0) - py * .03; put(3 + px, 17 + py, rgb(py === 0 ? [176, 128, 80] : [118, 80, 52], L / .8)); }
+  for (let py = 2; py < 17; py++) put(13, py, [70, 50, 36]); // mast
+  for (let py = 3; py < 15; py++) for (let px = 14; px < 14 + Math.round((py - 2) * .9); px++) put(px, py, py > 8 && py < 11 ? [200, 70, 56] : [240, 236, 222]); // sail
+  for (let py = 5; py < 14; py++) put(12, py, [226, 220, 204]); put(12, 5, [226, 220, 204]);
+  for (let px = 13; px < 17; px++) put(px, 1, [200, 70, 56]); put(13, 2, [70, 50, 36]);
+  for (let px = 4; px < 24; px++) { put(px, 23, [0, 0, 0]); }
+  x.putImageData(img, 0, 0);
+  // outline
+  const im2 = x.getImageData(0, 0, w, h), q = im2.data, al = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) al[i] = q[i * 4 + 3] === 255 && !(q[i * 4] === 0 && q[i * 4 + 1] === 0) ? 1 : 0;
+  for (let i = 0; i < w * h; i++) { if (q[i * 4] === 0 && q[i * 4 + 1] === 0 && q[i * 4 + 3] === 255) { q[i * 4 + 3] = 0; } }
+  for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) { const i = py * w + px; if (!al[i]) continue; if (px === 0 || py === 0 || !al[i - 1] || !al[i + 1] || !al[i - w] || (py < h - 1 && !al[i + w])) { q[i * 4] *= .55; q[i * 4 + 1] *= .52; q[i * 4 + 2] *= .56; } }
+  x.putImageData(im2, 0, 0);
+  const f = document.createElement("canvas"); f.width = w; f.height = h; const fx = f.getContext("2d"); fx.translate(w, 0); fx.scale(-1, 1); fx.drawImage(c, 0, 0);
+  return boatCache = { r: { canvas: c, ax: 14, ay: 21, w, h }, l: { canvas: f, ax: 14, ay: 21, w, h } };
 }

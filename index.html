@@ -118,6 +118,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
 .tip{position:absolute;max-width:250px;pointer-events:none;background:var(--parch);color:var(--pink);border:2px solid #6a4e32;padding:6px 10px;font-size:12.5px;line-height:1.4;z-index:6}
 .tip b{display:block;font:700 13px var(--display);margin-bottom:1px}
 .sheet{position:absolute;right:max(8px,env(safe-area-inset-right));top:calc(var(--top) + env(safe-area-inset-top) + 8px);width:min(380px,calc(100% - 16px));max-height:calc(100% - var(--top) - var(--cmd) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));overflow:auto;padding:12px 14px;z-index:5}
+.sheet.wmap{left:50%;right:auto;top:50%;transform:translate(-50%,-50%);width:min(96%,980px);max-height:92%;padding:10px 12px 8px;z-index:6}.sheet.wmap canvas{display:block;width:100%;height:auto;max-height:calc(100vh - 180px);object-fit:contain;image-rendering:pixelated;background:#0e1620;border:2px solid #000;cursor:pointer}.sheet.wmap .meta{margin:6px 2px 0}
 .sheet h2{font:700 18px var(--display);color:var(--gold);text-shadow:0 2px 0 #000;margin:0 0 10px;padding-right:40px}
 .sheet h4{font:700 13px var(--display);color:var(--gold);margin:14px 0 6px}
 .sheet p,.sheet li{color:var(--ink);font-size:13.5px}
@@ -188,6 +189,7 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent;font:in
   </footer>
   <section class="sheet carved" id="logsheet" hidden><h2>Chronicle</h2><button class="btn x" data-close="logsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><ul class="feed" id="feed"></ul></section>
   <section class="sheet carved left" id="vilsheet" hidden><h2>Village</h2><button class="btn x" data-close="vilsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><div id="vilbody"></div></section>
+  <section class="sheet carved wmap" id="wmapsheet" hidden><h2>World map</h2><button class="btn x" data-close="wmapsheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button><canvas id="wmapc" aria-label="World map. Tap a place to go there."></canvas><p class="meta" id="wmapinfo"></p></section>
   <section class="sheet carved" id="menusheet" hidden><h2>Menu</h2><button class="btn x" data-close="menusheet" aria-label="Close"><img class="pi" data-ic="x" alt=""></button>
     <div class="row" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" id="fsbtn"><img class="pi" data-ic="full" alt="">Full screen</button></div>
     <h4>Interface size</h4>

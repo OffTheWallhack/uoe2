@@ -5,7 +5,7 @@
 // ============================================================
 import * as M from "./sim.js";
 import { PAL, buildSprites, mix } from "./gfx.js";
-import { wonderSprites } from "./wonders.js";
+import { wonderSprites, boatSprites } from "./wonders.js";
 const { C, C4, WK } = M;
 export const sx = (x, y) => (x - y) * 8, sy = (x, y) => (x + y) * 4;
 const rgb = c => "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
@@ -63,9 +63,9 @@ export const chunkOrigin = ch => [(ch.cx - ch.cy - 1) * C * 8, (ch.cx + ch.cy) *
 function chunkMargin(ch) { if (ch.hm === undefined) { let m = 0; for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) m = Math.max(m, hcache(ch.cx + i, ch.cy + j).mx); ch.hm = Math.ceil(m) + 2; ch.hmax = m; } return ch.hm; }
 function samples(ch) {
   if (ch.g) return ch.g;
-  const n = C4 * C4, lf = new Float32Array(n), fd = new Float32Array(n), lk = new Float32Array(n), rv = new Float32Array(n), bi = new Float32Array(n), fl = new Float32Array(n);
-  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); rv[k] = M.isWater(x, y) ? 9 : M.riverD(x, y) - .55; bi[k] = M.birchV(x, y); fl[k] = M.flowerV(x, y); }
-  return ch.g = { lf, fd, lk, rv, bi, fl };
+  const n = C4 * C4, lf = new Float32Array(n), fd = new Float32Array(n), lk = new Float32Array(n), rv = new Float32Array(n), bi = new Float32Array(n), fl = new Float32Array(n), ds = new Float32Array(n);
+  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); rv[k] = M.isWater(x, y) ? 9 : M.riverD(x, y) - .55; bi[k] = M.birchV(x, y); fl[k] = M.flowerV(x, y); ds[k] = M.desertV(x, y); }
+  return ch.g = { lf, fd, lk, rv, bi, fl, ds };
 }
 let W = null, season = "summer", SP = null;
 function fieldPix(b, x, y, gx, gy, P, h, h2) {
@@ -103,6 +103,10 @@ function pix(ch, gx, gy, P, x, y, face, z) {
   if (g.rv[k] < 2.2) { // the stream and its pebbly banks
     if (M.isRiver(x, y)) { let c = P.snow ? [176, 200, 216] : [70, 128, 160]; if (h2 < .1 || (((x + y * 1.7) * 2.5) % 1 + 1) % 1 < .12) c = P.snow ? [214, 228, 238] : [130, 180, 200]; return c; }
     if (g.rv[k] < .9 && !P.snow) { let c = h < .5 ? P.dirt[1] : [150, 142, 128]; if (h2 < .2) c = [178, 172, 160]; return c; }
+  }
+  if (g.ds[k] > 0 && lk < .6) { // desert: dunes
+    if (P.snow) return h2 < .5 ? P.g[2] : P.g[1];
+    const rp = Math.sin((x - y) * 1.15 + Math.sin(y * .35) * 2.2 + g.ds[k] * 6); let c = SAND[(h * 2.4) | 0]; if (rp > .72) c = [240, 228, 186]; else if (rp < -.78) c = [196, 172, 124]; if (h2 < .03) c = [168, 146, 108]; return c;
   }
   if (lk > .6 && ht < 2.6) { // beach
     if (P.snow) return h2 < .5 ? P.g[2] : P.g[1];
@@ -311,6 +315,7 @@ function buildOverview(ch, f) {
   for (const t of ch.trees) { if (t.gone || M.hidden(W, t.x, t.y)) continue; const a = t.felled ? (t.sapling ? SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + 1] : t.cleared ? null : SP.stump) : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y, 0]); }
   for (const r of ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, 0]);
   for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; ents.push([b.x + b.y + b.a / 2 + b.b / 2, s, b.x, b.y, 1, b]); }
+  { const WS = wonderSprites(season); for (const w of W.S.wonders || []) if (Math.floor(w.x / C) === ch.cx && Math.floor(w.y / C) === ch.cy && WS[w.k]) ents.push([w.x + w.y, WS[w.k], w.x, w.y, 0]); }
   ents.sort((a, b) => a[0] - b[0]); c.imageSmoothingQuality = "low";
   for (const [, s, x, y, isB, b] of ents) {
     const px = (sx(x, y) - X0 - s.ax) / f, py = ((isB ? sy(x, y) - bH(b) : gyH(x, y)) - Y0 - s.ay) / f + m;
@@ -464,6 +469,14 @@ function drawEntities(vis, hour, VWa, VHa) {
     const T = S.trek; if (T) { const lead = S.people.find(q => q.id === T.members[0]);
       if (lead && !M.hidden(W, lead.x, lead.y) && (T.rest > 0 || hour >= 21.5 || hour < 5.3)) { const f = { x: lead.x + 1.2, y: lead.y + .9 }, fx = Math.round(sx(f.x, f.y) - vx0), fy = Math.round(gyH(f.x, f.y) - vy0);
         ents.push({ depth: f.x + f.y, draw: () => drawFire(fx, fy, hour), box: [fx - 7, fy - 10, fx + 7, fy + 4, { t: "Campfire", d: "The " + T.name + " is resting here." }] }); if (Math.random() < .08) parts.push({ x: sx(f.x, f.y), y: gyH(f.x, f.y) - 6, a: 0, l: 3 + Math.random() * 2, vx: (Math.random() - .3) * 3 }); } } }
+  for (const b of S.b) if (b.type === "harbor" && b.pdx !== undefined) { const cx = b.x + b.a / 2, cy = b.y + b.b / 2; if (Math.abs(sx(cx, cy) - vx0 - VWa / 2) < VWa / 2 + 90 && Math.abs(gyH(cx, cy) - vy0 - VHa / 2) < VHa / 2 + 90) ents.push({ depth: -1e5, draw: () => drawPier(b) }); }
+  { const BS = boatSprites();
+    for (const bt of S.boats) { const hb = S.b.find(q => q.id === bt.hb); if (!hb || M.hidden(W, bt.x, bt.y)) continue; const s = Math.cos(bt.hd) < 0 ? BS.l : BS.r, wx = bt.x + Math.sin(T * 1.3 + bt.id) * .0, bob = Math.round(Math.sin(T * 1.7 + bt.id) * .6);
+      const crew = S.people.filter(q => bt.crew.includes(q.id)).map(q => q.name).join(", ");
+      const x = Math.round(sx(bt.x, bt.y) - vx0 - s.ax), y = Math.round(gyH(bt.x, bt.y) - vy0 - s.ay) + bob; if (x > VWa || y > VHa || x + s.w < 0 || y + s.h < 0) continue;
+      const moving = bt.st !== "dock" && bt.rest <= 0, cxs = Math.round(sx(bt.x, bt.y) - vx0), cys = Math.round(gyH(bt.x, bt.y) - vy0);
+      ents.push({ depth: bt.x + bt.y + .3, draw: () => { ctx.globalAlpha = .22; ctx.fillStyle = "#e8f4f8"; ctx.fillRect(cxs - 11, cys + 1, 22, 1); if (moving) { ctx.fillRect(cxs - (Math.cos(bt.hd) < 0 ? -8 : 14), cys + 2, 6, 1); } ctx.globalAlpha = 1; ctx.drawImage(s.canvas, x, y); },
+        box: [x, y, x + s.w, y + s.h, { t: "Boat", d: bt.st === "dock" ? "Moored at the pier, waiting for the next trip." : (crew ? crew + " are " : "") + (bt.rest > 0 ? "fishing and looking around." : bt.st === "back" ? "sailing home." : "sailing to unexplored waters.") }] }); } }
   // wagon + ox
   const wg = S.wagon, ws = wg.alongY ? SP.wagonM : SP.wagon;
   spr(ents, ws, wg.alongY ? wg.x - .65 : wg.x - 1.2, wg.alongY ? wg.y - 1.2 : wg.y - .65, wg.x + wg.y + .8, { t: "Wagon", d: S.phase === "choose" ? "Everything the settlers own. Waiting for the Mayor's decision." : "It carried the first settlers and all their tools." }, VWa, VHa);
@@ -549,6 +562,16 @@ function drawOx(x, y, fl, fr) {
   px(ctx, x - 4, y - 5, 8, 4, b); px(ctx, x - 4, y - 5, 8, 1, "#94643f"); px(ctx, x - 4, y - 2, 8, 1, d);
   px(ctx, x - 3, y - 1 + fr, 1, 1, d); px(ctx, x + 2, y - fr, 1, 1, d); px(ctx, x - 2, y - 1, 1, 1, d); px(ctx, x + 3, y - 1, 1, 1, d);
   px(ctx, h, y - 5, 3, 3, "#6a4430"); px(ctx, h, y - 6, 1, 1, "#e8dcc0"); px(ctx, h + 2, y - 6, 1, 1, "#e8dcc0"); px(ctx, fl > 0 ? h + 2 : h, y - 3, 1, 1, "#2a1a10");
+}
+function drawPier(b) {
+  const dx = b.pdx, dy = b.pdy, pk = b.ppk || 0, cx = b.x + b.a / 2, cy = b.y + b.b / 2, ext = (dx ? b.a : b.b) / 2, e0 = ext - .1, d = M.dockOf(b), e1 = Math.hypot(d.x - cx, d.y - cy) + 1.2, px_ = -dy, py_ = dx;
+  const P = (s, w) => { const wx = cx + dx * s + px_ * w, wy = cy + dy * s + py_ * w; return [sx(wx, wy) - vx0, gyH(wx, wy) - vy0 - (M.isWater(wx, wy) ? 1 : 0)]; };
+  for (let s = e0; s < e1; s += .5) {
+    const A = P(s, -.6), B = P(s + .5, -.6), C2 = P(s + .5, .6), D = P(s, .6), odd = Math.floor((s - e0) / .5) % 2;
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.beginPath(); ctx.moveTo(A[0], A[1] + 3); ctx.lineTo(B[0], B[1] + 3); ctx.lineTo(C2[0], C2[1] + 3); ctx.lineTo(D[0], D[1] + 3); ctx.fill();
+    ctx.fillStyle = odd ? "#9c7242" : "#b08450"; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(C2[0], C2[1]); ctx.lineTo(D[0], D[1]); ctx.closePath(); ctx.fill();
+  }
+  for (let s = e0 + .5; s < e1; s += 2) for (const w of [-.6, .6]) { const q = P(s, w); px(ctx, Math.round(q[0]) - 1, Math.round(q[1]) - 2, 2, 5, "#4a3320"); px(ctx, Math.round(q[0]) - 1, Math.round(q[1]) - 2, 2, 1, "#6e4e30"); }
 }
 function drawFire(x, y, hour) {
   const s = SP.pit; ctx.drawImage(s.canvas, x - s.ax, y - s.ay);
@@ -650,6 +673,7 @@ function mmColor(x, y) {
   if (e < M.SEA) return P.water[e < M.SEA - .03 ? 0 : 1];
   const h = M.heightAt(x, y), lk = M.lakeV(x, y);
   if (lk > .6 && h < 2.6) return P.snow ? P.g[2] : [214, 196, 146];
+  if (M.desertV(x, y) > 0) return P.snow ? P.g[2] : [228, 196, 124];
   if (h > 38) return [238, 243, 250];
   if (h > 30) return [140, 132, 118];
   return P.g[1 + ((M.fdV(x, y) < .55) ? 1 : 0)];
@@ -685,4 +709,37 @@ export function minimap(cv2, focusX, focusY) {
   c.strokeStyle = "rgba(255,255,255,.85)"; c.lineWidth = 1; c.beginPath(); c.moveTo(cs[0][0], cs[0][1]); for (const q of cs) c.lineTo(q[0], q[1]); c.closePath(); c.stroke();
   mmWin = { L, ox, oy };
 }
+// ---------- the big world map ----------
+let wmBase = null, wmSig = "", wmAt = 0; export let wmWin = null;
+export function worldMap(cv2, force) {
+  if (!W) return false; const S = W.S;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, revealed = 0;
+  for (const ch of W.chunks.values()) for (let j = 0; j < C; j += 2) for (let i = 0; i < C; i += 2) if (!ch.fog[j * C + i]) { revealed++; const x = ch.x0 + i, y = ch.y0 + j; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+  if (x0 > x1) return false;
+  const L = Math.max(64, x1 - x0 + 10, y1 - y0 + 10) | 0, ox = Math.floor((x0 + x1) / 2 - L / 2), oy = Math.floor((y0 + y1) / 2 - L / 2), sc = L <= 160 ? 3 : L <= 300 ? 2 : 1, st = L > 260 ? 2 : 1;
+  const sig = [L, ox, oy, revealed, season].join();
+  if (!wmBase || force || (sig !== wmSig && performance.now() - wmAt > 3000)) {
+    wmSig = sig; wmAt = performance.now(); wmBase = document.createElement("canvas"); wmBase.width = L * 2; wmBase.height = L;
+    const b = wmBase.getContext("2d"), img = b.createImageData(L * 2, L), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { d[i] = 14; d[i + 1] = 22; d[i + 2] = 32; d[i + 3] = 255; }
+    for (let ry = 0; ry < L; ry += st) for (let rx = 0; rx < L; rx += st) {
+      const x = ox + rx + st / 2, y = oy + ry + st / 2; if (M.hidden(W, x, y)) continue;
+      const col = mmColor(x, y), u = rx - ry + L - 1, v = (rx + ry) >> 1; if (v >= L) continue;
+      for (let dv = 0; dv < st && v + dv < L; dv++) for (let du = 0; du < 2 * st; du++) { const uu = u + du - (st - 1); if (uu < 0 || uu >= L * 2) continue; const o = ((v + dv) * L * 2 + uu) * 4; d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; }
+    }
+    b.putImageData(img, 0, 0);
+  }
+  cv2.width = L * 2 * sc; cv2.height = L * sc; const c = cv2.getContext("2d"); c.imageSmoothingEnabled = false; c.drawImage(wmBase, 0, 0, cv2.width, cv2.height);
+  const P = (x, y) => [((x - ox) - (y - oy) + L - 1) * sc + sc, ((x - ox) + (y - oy)) / 2 * sc];
+  const fz = Math.max(1, cv2.width / Math.max(300, cv2.clientWidth || cv2.width)); c.textAlign = "center"; c.lineJoin = "round";
+  const label = (t, x, y, col, size) => { c.font = "700 " + Math.round(size * fz * .85) + "px 'Trebuchet MS',sans-serif"; c.lineWidth = 3 * fz; c.strokeStyle = "rgba(10,14,20,.9)"; c.strokeText(t, x, y); c.fillStyle = col; c.fillText(t, x, y); };
+  const star = (x, y, r) => { c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? r * .45 : r; c.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); } c.closePath(); c.fillStyle = "#ffd24a"; c.fill(); c.lineWidth = 1.5; c.strokeStyle = "#3a2a10"; c.stroke(); };
+  for (const w of S.wonders || []) { const [x, y] = P(w.x, w.y); star(x, y, (6 + sc) * fz * .8); label(M.WONDERS[w.k].name, x, y - (9 + sc) * fz * .8, "#fff0b0", 9 + sc * 1.5); }
+  for (const t of S.towns || []) { const [x, y] = P(t.x, t.y); c.beginPath(); c.arc(x, y, (3 + sc) * fz * .8, 0, 6.3); c.fillStyle = "#f0c860"; c.fill(); c.lineWidth = 1.5 * fz; c.strokeStyle = "#2a1a0a"; c.stroke(); label(t.name, x, y - (7 + sc) * fz * .8, "#ffffff", 10 + sc * 1.5); }
+  for (const b of S.b) if (b.type === "harbor" && b.done) { const [x, y] = P(b.x + 1.5, b.y + 1); c.fillStyle = "#5cb0e8"; c.fillRect(x - 3, y - 3, 6, 6); c.strokeStyle = "#0a2038"; c.lineWidth = 1.5; c.strokeRect(x - 3, y - 3, 6, 6); }
+  for (const bt of S.boats || []) if (bt.st !== "dock") { const [x, y] = P(bt.x, bt.y); c.beginPath(); c.moveTo(x, y - 5); c.lineTo(x + 4, y + 3); c.lineTo(x - 4, y + 3); c.closePath(); c.fillStyle = "#fff"; c.fill(); c.lineWidth = 1.5; c.strokeStyle = "#0a2038"; c.stroke(); }
+  if (S.trek) { const lead = S.people.find(q => q.id === S.trek.members[0]); if (lead) { const [x, y] = P(lead.x, lead.y); c.beginPath(); c.arc(x, y, 3 + sc / 2, 0, 6.3); c.fillStyle = "#ff5a44"; c.fill(); c.lineWidth = 1.5; c.strokeStyle = "#2a0a08"; c.stroke(); label("Expedition", x, y - 7 - sc, "#ffb0a0", 9 + sc); } }
+  wmWin = { L, ox, oy, sc }; return true;
+}
+export function wmToWorld(u, v) { if (!wmWin) return null; const { L, ox, oy, sc } = wmWin, a = (u / sc - 1 - (L - 1)) / 2, vv = v / sc; return { x: ox + vv + a, y: oy + vv - a }; }
 export function minimapToWorld(u, v) { if (!mmWin) return null; const { L, ox, oy } = mmWin, a = (u - (L - 1)) / 2; return { x: ox + v + a, y: oy + v - a }; }
