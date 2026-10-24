@@ -51,7 +51,12 @@ function afterAct(a) { if (a.k === "trek" || a.k === "sail") { exploreMode = fal
 function say(t) { feed("💬", t); }
 // ---------- sandbox persistence ----------
 function saveSandbox() { if (LIVE || !W) return; try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
-function newSandbox(seed) { W = M.createWorld(seed, Date.now()); G.setWorld(W); centerOn(W.S.wagon.x, W.S.wagon.y); renderLog(true); }
+// the test world has its own clock: real time plus a shift that can be moved (and that fast-forward carries along)
+function setClock(S, hour, nearest) {
+  const cur = M.clockOf(S).hour; let d = nearest ? ((hour - cur + 36) % 24) - 12 : (hour - cur + 24) % 24; if (!nearest && d < .02) d = 24;
+  S.clockShift = (S.clockShift || 0) + d * 3600000; S.t0 += d * 3600000;
+}
+function newSandbox(seed) { W = M.createWorld(seed, Date.now()); setClock(W.S, 7.5, true); G.setWorld(W); centerOn(W.S.wagon.x, W.S.wagon.y); renderLog(true); }
 // ---------- UI ----------
 let gridMode = "main", gridSig = "", selKey = null;
 function toast(title, txt) { feed(title ? "🏆" : "💬", title || txt, title ? txt : ""); }
@@ -389,6 +394,7 @@ if (!LIVE) {
   $("tsl").addEventListener("input", e => { view.hourOverride = parseFloat(e.target.value); $("real").checked = false; });
   $("real").addEventListener("change", e => { if (e.target.checked) view.hourOverride = null; });
   $("season").addEventListener("change", e => view.seasonOverride = e.target.value || null);
+  $("clockjump").addEventListener("click", e => { const b = e.target.closest("button[data-h]"); if (!b) return; view.hourOverride = null; $("real").checked = true; const S = W.S; if (b.dataset.h === "real") { S.t0 -= S.clockShift || 0; S.clockShift = 0; } else setClock(S, +b.dataset.h, false); });
   $("weather").addEventListener("change", e => view.weatherOverride = e.target.value || null);
   $("neww").addEventListener("click", () => { newSandbox((Math.random() * 1e9) | 0); gridSig = ""; selKey = null; $("menusheet").hidden = true; });
 }
@@ -420,7 +426,7 @@ function loop(now) {
     acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W);
     // At 1x the clock is the real time of day. In fast-forward the clock runs fast too, so a test world can be sped through
     // the night into the morning (villagers keep their real day and night rhythm, only quicker).
-    if (speed === 1) W.S.t0 = Date.now() - W.S.tick * 250;
+    if (speed === 1) W.S.t0 = Date.now() - W.S.tick * 250 + (W.S.clockShift || 0); else W.S.clockShift = W.S.t0 + W.S.tick * 250 - Date.now();
   }
   for (const e of W.events) {
     if (e.k === "milestone") { feed("🏆", e.title, e.txt); SND.sfx("milestone"); }

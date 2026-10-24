@@ -148,6 +148,7 @@ export function createWorld(seed, t0) {
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
     chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false, price: { food: 1, wood: 1, stone: 1 }, trade: { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }, pact: {}, marketT: 60, tradeT: 120,
   };
+  S.re = pickStart(seed);
   const W = wrap(S);
   const R = mkRng(seed + 7);
   // the old cart track the wagon came along
@@ -171,8 +172,22 @@ function newPerson(W, x, y) {
   return { id: S.nextId++, name, trait: TRAITS[(rnd(W) * TRAITS.length) | 0], look: [(rnd(W) * 8) | 0, (rnd(W) * 8) | 0, (rnd(W) * 5) | 0],
     x, y, hx: 1, hy: 0, ax: 1, ay: 0, state: "idle", role: "wood", job: null, obj: null, tx: x, ty: y, t: 1 + rnd(W) * 2, carry: null, home: 0, sit: false, asleep: false, steerT: 0, revT: 0, moving: false, act: "" };
 }
+// The wagon always starts at the middle of the map, so a new world slides the terrain until the start is solid, dry, flat ground
+// where the settlers can actually settle (about 1 seed in 14 used to start on a beach). Old saves keep their terrain (S.re is missing).
+function startSpots(seed, re) {
+  SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
+  const sa = mkRng(seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa); OVER = new Map(); ISLC = new Map();
+  let n = 0;
+  for (let y = -12; y <= 12; y += 2) for (let x = -12; x <= 12; x += 2) {
+    if (Math.hypot(x, y) > 12.5 || lakeV(x, y) > .6 || riverD(x, y) < 3) continue;
+    let flat = true; for (let j = -2; j <= 2 && flat; j++) for (let i = -2; i <= 2; i++) if (steep(x + i, y + j, x + i + 1, y + j) || steep(x + i, y + j, x + i, y + j + 1)) { flat = false; break; }
+    if (flat) n++;
+  }
+  return n;
+}
+function pickStart(seed) { let best = 0, bn = -1; for (let re = 0; re < 40; re++) { const n = startSpots(seed, re); if (n >= 25) return re; if (n > bn) { bn = n; best = re; } } return best; }
 export function wrap(S) {
-  SX = (mkRng(S.seed)() * 20000) | 0; SY = (mkRng(S.seed + 1)() * 20000) | 0;
+  SX = ((mkRng(S.seed)() * 20000) | 0) + (S.re || 0) * 7919; SY = ((mkRng(S.seed + 1)() * 20000) | 0) + (S.re || 0) * 6577;
   const sa = mkRng(S.seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa);
   const W = { S, chunks: new Map(), occ: new Map(), events: [], trail: [], dirtyGround: [], dirtyFog: [], newChunks: [] };
   // trail from the entry point to the start clearing
