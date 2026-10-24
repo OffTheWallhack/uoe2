@@ -332,15 +332,15 @@ function consume() {
 let _ovt = null; function ovTmp(w, h) { if (!_ovt || _ovt.width !== w || _ovt.height < h) { _ovt = document.createElement("canvas"); _ovt.width = w; _ovt.height = h + 8; } return _ovt; }
 function buildOverview(ch, f) {
   // simplified pre-rendered tile (1/f resolution) used when zoomed out: ground + trees + rocks + buildings, fog on top
-  const key = "ov" + f, m = OVM * 4 / f; let o = ch[key];
+  const key = "ov" + f + (view.gfx >= 2 ? "s" : ""), m = OVM * 4 / f; let o = ch[key];
   if (!o) { o = ch[key] = document.createElement("canvas"); o.width = CW / f; o.height = Math.ceil((CH + ch.hm) / f) + m; }
   const c = o.getContext("2d"), [X0, Y0] = chunkOrigin(ch);
   c.clearRect(0, 0, o.width, o.height); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = "high";
   const full = ch.gc && ch.bakedSeason === season;
   if (full) c.drawImage(ch.gc, 0, m, CW / f, (CH + ch.hm) / f); else if (ch.lq) { c.imageSmoothingEnabled = f > 2; c.drawImage(ch.lq, 0, m, CW / f, ch.lq.height * 4 / f); c.imageSmoothingEnabled = true; }
   const ents = [];
-  for (const t of ch.trees) { if (t.gone || M.hidden(W, t.x, t.y)) continue; const a = t.felled ? (t.sapling ? SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + 1] : t.cleared ? null : SP.stump) : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y, 0]); }
-  for (const r of ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, 0]);
+  for (const t of view.gfx >= 2 ? [] : ch.trees) { if (t.gone || M.hidden(W, t.x, t.y)) continue; const a = t.felled ? (t.sapling ? SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + 1] : t.cleared ? null : SP.stump) : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y, 0]); }
+  for (const r of view.gfx >= 2 ? [] : ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, 0]);
   for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; ents.push([b.x + b.y + b.a / 2 + b.b / 2, s, b.x, b.y, 1, b]); }
   { const WS = wonderSprites(season); for (const w of W.S.wonders || []) if (Math.floor(w.x / C) === ch.cx && Math.floor(w.y / C) === ch.cy && WS[w.k]) ents.push([w.x + w.y, WS[w.k], w.x, w.y, 0]); }
   ents.sort((a, b) => a[0] - b[0]); c.imageSmoothingQuality = "low";
@@ -360,7 +360,7 @@ export const view = { cam: { x: 0, y: 0 }, zoom: 3, hover: null, ghost: null, se
 let wkNow = "clear", flash = 0, auroraK = 0; let cv, ctx, Vw = 300, Vh = 200, k = 1, R = 3, vx0 = 0, vy0 = 0, T = 0, hits = [], vig = null, parts = [], floats = [], says = new Map();
 export function init(canvas) { cv = canvas; ctx = cv.getContext("2d"); }
 export function resize() {
-  const r = cv.getBoundingClientRect(); const Z = view.zoom, u = (view.ui || 1) / (r.width / (cv.clientWidth || r.width) || 1); R = (Z >= 1 ? Z : 1) / u; k = Z >= 1 ? 1 : Z; // u: interface scale (CSS px are u screen px)
+  const r = cv.getBoundingClientRect(); const Z = view.zoom, u = (view.ui || 1) / (r.width / (cv.clientWidth || r.width) || 1); const low = Z >= 1 ? 1 : view.gfx >= 2 ? (Z < .5 ? 3 : 2) : view.gfx === 1 ? 2 : (Z < .5 ? 2 : 1); R = (Z >= 1 ? Z : low) / u; k = Z >= 1 ? 1 : Z / low; // low: simple graphics draw the far view on a coarser canvas; u: interface scale (CSS px are u screen px)
   Vw = Math.max(60, Math.floor(r.width / R)); Vh = Math.max(60, Math.floor(r.height / R)); cv.width = Vw; cv.height = Vh;
   const g = ctx.createRadialGradient(Vw / 2, Vh / 2, Math.min(Vw, Vh) * .3, Vw / 2, Vh / 2, Math.hypot(Vw, Vh) * .58); g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, "rgba(0,0,0,.45)");
   vig = document.createElement("canvas"); vig.width = Vw; vig.height = Vh; const x = vig.getContext("2d"); x.fillStyle = g; x.fillRect(0, 0, Vw, Vh);
@@ -377,7 +377,7 @@ export function frame(now, rdt) {
   const S = W.S, clk = M.clockOf(S), hour = view.hourOverride ?? clk.hour, sea = view.seasonOverride || M.seasonOf(clk.month);
   if (sea !== season || !SP) setSeason(sea);
   consume(); W.events.length = 0;
-  const Z = view.zoom, over = Z < 1, OF = Z < .5 ? 4 : 2;
+  const Z = view.zoom, over = Z < 1, gfx = view.gfx || 0, OF = Z < .5 || gfx >= 2 ? 4 : 2;
   vx0 = Math.round(view.cam.x - Vw / k / 2); vy0 = Math.round(view.cam.y - Vh / k / 2);
   const VWa = Vw / k, VHa = Vh / k;
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
@@ -401,13 +401,13 @@ export function frame(now, rdt) {
   if (Z >= .5) for (const ch of vis) { if (performance.now() - tb > budget) break; if (ch.bakedSeason !== season && !ch.allFog) bakeSome(ch, tb + budget); }
   hits = [];
   if (over) {
-    const key = "ov" + OF;
+    const key = "ov" + OF + (gfx >= 2 ? "s" : "");
     for (const ch of vis) { if (performance.now() - tb > budget + 4) break; if (!(ch.gc && ch.bakedSeason === season) && !(ch.lq && ch.lqSeason === season)) continue; const o = ch[key]; if (!o || (ch[key + "G"] !== (ch.ovG || 0) && performance.now() - (ch[key + "At"] || 0) > 1500)) buildOverview(ch, OF); }
     vis.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy));
     const m = OVM * 4;
     for (const ch of vis) {
-      if (ch.allFog) continue; const [X0, Y0] = chunkOrigin(ch), o = ch[key] || ch["ov" + (OF === 4 ? 2 : 4)];
-      if (o) { const f = o === ch.ov2 ? 2 : 4; ctx.drawImage(o, X0 - vx0, Y0 - vy0 - m, CW, o.height * f); }
+      if (ch.allFog) continue; const [X0, Y0] = chunkOrigin(ch), o = ch[key] || ch["ov" + (OF === 4 ? 2 : 4) + (gfx >= 2 ? "s" : "")];
+      if (o) { const f = o === ch.ov2 || o === ch.ov2s ? 2 : 4; ctx.drawImage(o, X0 - vx0, Y0 - vy0 - m, CW, o.height * f); }
       else if (ch.lq) { ctx.drawImage(ch.lq, X0 - vx0, Y0 - vy0, CW, ch.lq.height * 4); }
     }
     const ps = Z < .5 ? [4, 6] : [3, 5];
@@ -427,14 +427,14 @@ export function frame(now, rdt) {
   const wk = view.weatherOverride || S.weather.kind;
   let tn = tint(hour); if (wk !== "clear") tn = tn.map(v => v * (wk === "cloudy" || wk === "fog" ? .9 : .84));
   ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = rgb(tn); ctx.fillRect(0, 0, Vw, Vh); ctx.globalCompositeOperation = "source-over";
-  const n = nightOf(hour); if (n > .2 && Z >= .5) drawGlow(n, hour);
+  const n = nightOf(hour); if (n > .2 && Z >= .5 && gfx < 2) drawGlow(n, hour);
   if (wk === "fog") { ctx.fillStyle = "rgba(200,206,210,.18)"; ctx.fillRect(0, 0, Vw, Vh); }
   { // polar lights over the frozen lands (only on clear or cloudy nights while the view is over the tundra)
     const wx = (view.cam.x / 8 + view.cam.y / 4) / 2, wy = (view.cam.y / 4 - view.cam.x / 8) / 2, dark = nightOf(hour), over = M.tundraV(wx, wy) > 0 || M.tundraV(wx + 20, wy + 20) > 0 || M.tundraV(wx - 20, wy - 20) > 0;
-    auroraK += ((over && dark > .55 && wk !== "rain" && wk !== "fog" ? 1 : 0) - auroraK) * Math.min(1, rdt * .6); if (auroraK > .02) drawAurora(auroraK * dark);
+    auroraK += ((over && dark > .55 && wk !== "rain" && wk !== "fog" ? 1 : 0) - auroraK) * Math.min(1, rdt * .6); if (auroraK > .02 && gfx < 2) drawAurora(auroraK * dark);
     if (wk === "rain") { if (Math.random() < rdt * .035) { flash = 1; if (view.sfx) view.sfx("thunder"); } } flash = Math.max(0, flash - rdt * 2.6); if (flash > .02) { ctx.fillStyle = "rgba(226,232,255," + (flash * .28).toFixed(3) + ")"; ctx.fillRect(0, 0, Vw, Vh); }
   }
-  drawWeather(wk, rdt); ctx.drawImage(vig, 0, 0);
+  drawWeather(wk, rdt); if (!gfx) ctx.drawImage(vig, 0, 0);
   if (Z >= 2 && !over) drawTexts(rdt);
 }
 function drawAurora(a) {

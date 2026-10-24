@@ -842,11 +842,19 @@ function finishBuilding(W, s) {
 // ---------- village planner: the villagers decide what to build ----------
 // Where do the villagers build? Not wherever it is closest: houses and workplaces keep two free tiles around them (lanes for
 // walking and carrying), the square around the village hall stays open, and paved roads are never built over.
+const SPREAD = new Set(["pit", "hut", "longhouse", "field", "fold"]);
 const OPEN_SQUARE = new Set(["well", "tavern", "chapel", "bench", "torch", "apiary", "tower", "camp", "outpost"]);
 function findSite(W, type, ax, ay, rmin, rmax, again) {
   const T = TYPES[type], S = W.S; let best = null;
   const tw = S.towns.length ? townAt(S, ax, ay) : null, hall = tw && hallOf(W, tw), hc = hall ? center(hall) : null;
   const gap = T.deco || T.field ? 0 : 1; // extra free tiles on top of the one that canPlace already demands
+  // houses and fields anchored on the village centre spread out sideways: the more buildings, the wider the ring they aim for
+  const spread = hc && SPREAD.has(type) && Math.hypot(ax - hc.x, ay - hc.y) < 3;
+  let rT = 0;
+  if (spread) {
+    const nb = S.b.filter(b => b.town === tw.id && !TYPES[b.type].deco).length;
+    rT = 5 + 2.2 * Math.sqrt(Math.max(0, nb - 4)); rmin = Math.max(rmin, 5); rmax = Math.max(rmax, Math.ceil(rT) + 5);
+  }
   for (let r = rmin; r <= rmax; r += 1) {
     const n = Math.max(8, Math.round(r * 3));
     for (let k = 0; k < n; k++) {
@@ -859,10 +867,10 @@ function findSite(W, type, ax, ay, rmin, rmax, again) {
       if (!T.deco) for (let j = y; j < y + T.b && !blocked; j++) for (let i = x; i < x + T.a; i++) if (ROAD.get(i + ":" + j)) { blocked = true; break; }
       if (blocked) continue;
       let trees = 0; treesIn(W, x, y, T.a, T.b, t => { if (!t.felled) trees++; });
-      const sc = r + trees * .8 + (rnd(W) * .5);
+      const sc = (spread ? Math.abs(r - rT) * .7 + rnd(W) * 1.2 : r + rnd(W) * .5) + trees * .8;
       if (!best || sc < best.sc) best = { x, y, sc };
     }
-    if (best && r > rmin + 3) break;
+    if (best && r > (spread ? rT + 3 : rmin + 3)) break;
   }
   if (!best && !again && !T.deco) return findSite(W, type, ax, ay, rmax, rmax + 10, true);
   return best;

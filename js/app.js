@@ -50,7 +50,7 @@ async function doAct(a) {
 function afterAct(a) { if (a.k === "trek" || a.k === "sail") { exploreMode = false; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "trekcancel") gridSig = ""; if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
 function say(t) { feed("💬", t); }
 // ---------- sandbox persistence ----------
-function saveSandbox() { if (LIVE || !W) return; try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
+function saveSandbox(idle) { if (LIVE || !W) return; if (idle && window.requestIdleCallback) { requestIdleCallback(() => saveSandbox(), { timeout: 3000 }); return; } try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
 // the test world has its own clock: real time plus a shift that can be moved (and that fast-forward carries along)
 function setClock(S, hour, nearest) {
   const cur = M.clockOf(S).hour; let d = nearest ? ((hour - cur + 36) % 24) - 12 : (hour - cur + 24) % 24; if (!nearest && d < .02) d = 24;
@@ -292,11 +292,11 @@ function fillVillage() {
 const labelEls = new Map();
 function townLabels() {
   const S = W.S, box = $("labels"), on = S.phase === "settled"; if (!on) { box.hidden = true; return; } box.hidden = false;
-  const Z = view.zoom, L0 = cv.offsetLeft, T0 = cv.offsetTop, CWd = cv.clientWidth, CHd = cv.clientHeight;
+  const Z = view.zoom, L0 = cv.offsetLeft, T0 = cv.offsetTop, CWd = cv.clientWidth, CHd = cv.clientHeight, ui = view.ui || 1;
   for (const T of S.towns || []) {
     let e = labelEls.get(T.id); if (!e) { e = document.createElement("div"); e.className = "tl"; box.appendChild(e); labelEls.set(T.id, e); }
-    e.textContent = T.name;
-    const [x, y] = G.screenOf(T.x, T.y), lx = x + L0, ly = y + T0 - Math.max(18, 30 * Math.min(Z, 3) / (view.ui || 1));
+    if (e.textContent !== T.name) e.textContent = T.name;
+    const [x, y] = G.screenOf(T.x, T.y), lx = x + L0, ly = y + T0 - Math.max(18, 30 * Math.min(Z, 3) / ui);
     const vis = Z < 3 && lx > -60 && ly > T0 - 10 && lx < CWd + 60 && ly < T0 + CHd && !M.hidden(W, T.x, T.y);
     e.hidden = !vis; if (vis) { e.style.transform = "translate(" + Math.round(lx) + "px," + Math.round(ly) + "px) translate(-50%,-100%)"; e.classList.toggle("sm", Z >= 2); }
   }
@@ -379,6 +379,22 @@ function applyUI() {
   requestAnimationFrame(() => G.resize()); setTimeout(() => G.resize(), 300);
 }
 applyUI();
+// ---- graphics: Auto starts with full detail and steps down by itself if the far view is slow; the player can also pick a level
+const GFX_OPTS = [["auto", "Auto"], ["0", "Full"], ["1", "Simple"], ["2", "Very simple"]];
+let gfxPref = "auto"; try { const v = localStorage.getItem("uoe2-gfx"); if (GFX_OPTS.some(o => o[0] === v)) gfxPref = v; } catch (e) { }
+let gfxAuto = 0, slowT = 0, calmT = 0, ema = 33;
+function applyGfx(init) {
+  const g = gfxPref === "auto" ? gfxAuto : +gfxPref; if ((view.gfx || 0) !== g) { view.gfx = g; if (!init) G.resize(); }
+  const box = $("gfxsz"); box.textContent = "";
+  for (const [v, name] of GFX_OPTS) { const b = document.createElement("button"); b.className = "btn" + (v === gfxPref ? " on" : ""); b.textContent = name; b.addEventListener("click", () => { gfxPref = v; slowT = 0; try { localStorage.setItem("uoe2-gfx", v); } catch (e) { } applyGfx(); }); box.appendChild(b); }
+}
+applyGfx(true);
+function watchSpeed(dt) { // called once per drawn frame
+  ema += (dt * 1000 - ema) * .08;
+  if (gfxPref !== "auto" || gfxAuto >= 2 || speed > 20 || view.zoom >= 1 || document.hidden || dt > .2) { slowT = 0; return; }
+  if (ema > 45) slowT += dt; else slowT = Math.max(0, slowT - dt * .5);
+  if (slowT > 5) { slowT = 0; ema = 33; gfxAuto++; applyGfx(); feed("🖼️", "Graphics made simpler", "The far view was slow. Change it in the Menu under Graphics."); }
+}
 addEventListener("orientationchange", () => setTimeout(applyUI, 250));
 $("fsbtn").addEventListener("click", () => {
   const d = document, el = d.documentElement;
@@ -419,7 +435,7 @@ function markSeen() { try { const S = W.S; localStorage.setItem(seenKey, JSON.st
 let last = performance.now(), uiAcc = 0, saveAcc = 0, mmAcc = 1;
 function loop(now) {
   requestAnimationFrame(loop);
-  const rdt = Math.min(.25, (now - last) / 1000); if (now - last < 30) return; last = now;
+  const rdt = Math.min(.25, (now - last) / 1000); if (now - last < (view.gfx >= 2 && view.zoom < 1 ? 45 : 30)) return; last = now; watchSpeed(rdt);
   if (!W) return;
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
   else {
@@ -445,8 +461,8 @@ function loop(now) {
   G.frame(now, rdt); townLabels();
   uiAcc += rdt; if (uiAcc > .25) { uiAcc = 0; ui(); }
   envAcc += rdt; if (envAcc > 1) { envAcc = 0; soundEnv(); }
-  mmAcc += rdt; if (mmAcc > 1) { mmAcc = 0; G.minimap($("mm")); }
-  saveAcc += rdt; if (saveAcc > 15) { saveAcc = 0; saveSandbox(); markSeen(); }
+  mmAcc += rdt; if (mmAcc > (view.gfx ? 3 : 1)) { mmAcc = 0; G.minimap($("mm")); }
+  saveAcc += rdt; if (saveAcc > 20) { saveAcc = 0; saveSandbox(true); markSeen(); }
   if (LIVE && Date.now() - lastPoll > 15000) { lastPoll = Date.now(); poll(); }
 }
 addEventListener("pagehide", () => { saveSandbox(); markSeen(); });
@@ -470,5 +486,5 @@ async function start() {
   view.warm = performance.now() + 2500; // bake the ground faster for the first moments
   requestAnimationFrame(loop);
 }
-window.UOE = { get W() { return W; }, M, G, doAct, setZoom, fitWorld, view, setSpeed: s => speed = s };
+window.UOE = { get gfxInfo() { return { gfxPref, gfxAuto, slowT, ema, speed }; }, get W() { return W; }, M, G, doAct, setZoom, fitWorld, view, setSpeed: s => speed = s };
 start();
