@@ -15,8 +15,3 @@ for (const seed of [3,11,101]) {
   console.log("seed",seed,"chunks",ma.size,"over tiles",Object.keys(B2.over).length,"differing chunks",diff); if(diff) allOk=false;
 }
 console.log(allOk?"PURE":"NOT PURE");
-{
-  const seed=11, R=6, order=[]; for(let cy=-R;cy<=R;cy++)for(let cx=-R;cx<=R;cx++)order.push([cx,cy]);
-  const A=M.createWorld(seed, Date.parse("2026-10-23T05:30:00Z")); const ma=gen(A,order);
-  const B=M.createWorld(seed, Date.parse("2026-10-23T05:30:00Z")); let k=0; for (let y=-150;y<150;y+=1) for(let x=-150;x<150;x+=1){ if(M.isWater(x+.5,y+.5) && ((x*7+y*13)%5===0)) { B.over[x+":"+y]={k:(k++%2?"f":"b"),z:2,d:0}; } }
-  const B2=M.load(JSON.parse(JSON.stringify(M.serialize(B)))); for(const key in B.over) B2.over[key]=B.over[key]; M.activate(B2); const mb=gen(B2,order.slice().reverse());
