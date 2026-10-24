@@ -21,6 +21,8 @@ export function mkRng(s) { return () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t 
 export const SEA = .40;
 let DX = 1, DY = 0;
 // Things the villagers change in the land itself: bridges and gravel fill over water, gravel roads.
+const EMPTY_LAND = new Map();
+const LOGS_OF = { willow: 2, birch: 2, dwarf: 1 }; // logs a full-grown tree gives, by kind (everything else gives 3)
 let OVER = new Map(), ROAD = new Map(), ACTIVE = null; // ROAD: tile -> 1 gravel, 2 cobbled main road
 export const okey = (x, y) => Math.floor(x) + ":" + Math.floor(y);
 export const overAt = (x, y) => OVER.size ? OVER.get(okey(x, y)) : undefined;
@@ -163,11 +165,11 @@ export function createWorld(seed, t0) {
     chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false, price: { food: 1, wood: 1, stone: 1 }, trade: { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }, pact: {}, marketT: 60, tradeT: 120,
   };
   S.re = pickStart(seed);
-  const W = wrap(S);
   const R = mkRng(seed + 7);
-  // the old cart track the wagon came along
+  // the old cart track the wagon came along (set before the world is wrapped, so the very first chunks are made exactly as they will be after every reload)
   const sa = mkRng(seed + 11)() * Math.PI * 2, ang = sa + Math.PI / 2 * (R() < .5 ? 1 : -1) + (R() - .5) * .5, ex = Math.cos(ang) * 46, ey = Math.sin(ang) * 46;
   S.entry = { x: ex, y: ey };
+  const W = wrap(S);
   S.wagon = { x: 0, y: 0, path: null, d: 0, alongY: Math.abs(ey) > Math.abs(ex), hx: -ex, hy: -ey };
   S.ox = { x: 1.8, y: 0 };
   for (let i = 0; i < 5; i++) S.people.push(newPerson(W, Math.cos(i * 1.3) * 1.6 - 1.2, Math.sin(i * 1.3) * 1.1 + 1.4));
@@ -222,7 +224,7 @@ export const ckey = (cx, cy) => cx + "," + cy;
 export function chunkAt(W, x, y, create) { const cx = Math.floor(x / C), cy = Math.floor(y / C); return getChunk(W, cx, cy, create); }
 export function getChunk(W, cx, cy, create) {
   const k = ckey(cx, cy); let ch = W.chunks.get(k);
-  if (!ch && create) { ch = genChunk(W, cx, cy); W.chunks.set(k, ch); W.newChunks.push(ch); }
+  if (!ch && create) { const keep = OVER; OVER = EMPTY_LAND; try { ch = genChunk(W, cx, cy); } finally { OVER = keep; } W.chunks.set(k, ch); W.newChunks.push(ch); } // a chunk is made from the bare land only, never from what villagers built, so it is the same whenever it is made
   return ch;
 }
 function genChunk(W, cx, cy) {
@@ -1459,7 +1461,7 @@ export function step(W) {
         if (ch.worn !== false) { const wr = ch.wear; let any = false; for (let k = 0; k < wr.length; k++) { const o = wr[k]; if (o) { const n = o > 9 ? o - 9 : 0; wr[k] = n; if (n) any = true; if (((o / WK * 14) | 0) !== ((n / WK * 14) | 0)) W.dirtyGround.push(ch, k); } } ch.worn = any; }
         for (const t of ch.trees) {
           if (!t.felled || t.gone) continue;
-          if (t.sapling) { t.regrow -= 5; if (t.regrow <= 0) { t.felled = false; t.sapling = false; t.logs = 3; ch.ovDirty = true; } }
+          if (t.sapling) { t.regrow -= 5; if (t.regrow <= 0) { t.felled = false; t.sapling = false; t.logs = LOGS_OF[t.t] || 3; ch.ovDirty = true; } }
           else {
             // an old stump sprouts again (most of them), or rots away: the forest never runs out for good
             t.rot = (t.rot || 0) + 5;
