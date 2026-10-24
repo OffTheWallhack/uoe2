@@ -418,9 +418,9 @@ function loop(now) {
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
   else {
     acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W);
-    // The clock always shows the real time of day, at any speed. Fast-forward only makes work go faster, so villagers
-    // keep real day and night: they work in daylight, sleep at night, and a few keep watch.
-    W.S.t0 = Date.now() - W.S.tick * 250;
+    // At 1x the clock is the real time of day. In fast-forward the clock runs fast too, so a test world can be sped through
+    // the night into the morning (villagers keep their real day and night rhythm, only quicker).
+    if (speed === 1) W.S.t0 = Date.now() - W.S.tick * 250;
   }
   for (const e of W.events) {
     if (e.k === "milestone") { feed("🏆", e.title, e.txt); SND.sfx("milestone"); }
