@@ -295,7 +295,10 @@ function repaintWorldRect(x0, y0, x1, y1, fogToo) {
 // ---------- sync with simulation ----------
 export function setWorld(nw, old) {
   const prev = old || W; W = nw;
-  if (prev && prev !== nw) {
+  // a different world (new seed, start spot or generation version) must not inherit the old one's baked ground or heights
+  const same = prev && prev !== nw && prev.S.seed === nw.S.seed && (prev.S.re || 0) === (nw.S.re || 0) && (prev.S.gv || 0) === (nw.S.gv || 0);
+  if (prev && prev !== nw && !same) { HC.clear(); hcK = NaN; hcA = null; }
+  if (same) {
     for (const ch of nw.chunks.values()) {
       const o = prev.chunks.get(ch.k); if (!o || !o.gc) continue;
       ch.gc = o.gc; ch.fc = o.fc; ch.ov2 = o.ov2; ch.ov4 = o.ov4; ch.g = o.g; ch.waterPx = o.waterPx; ch.bakedSeason = o.bakedSeason; ch.fogClear = o.fogClear; ch.ovG = (ch.ovG || 0) + 1; ch.hm = o.hm; ch.hmax = o.hmax; ch.hp = o.hp; ch.hf = o.hf; ch.hz = o.hz;
