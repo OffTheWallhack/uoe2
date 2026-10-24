@@ -314,7 +314,7 @@ export function setWorld(nw, old) {
 export function setSeason(s) { if (s === season && SP) return; season = s; SP = buildSprites(s); if (W) for (const ch of W.chunks.values()) ch.bakedSeason = null; }
 function consume() {
   const dg = W.dirtyGround; let n = 0;
-  while (dg.length && n < 300) { const ch = dg.shift(), k = dg.shift(); n++; if (!ch.gc) continue; const i = k % C4, j = (k / C4) | 0, x = ch.x0 + i / 4, y = ch.y0 + j / 4; repaintWorldRect(x, y, x + .25, y + .25); }
+  while (dg.length && n < (view.fast ? 60 : 300)) { const ch = dg.shift(), k = dg.shift(); n++; if (!ch.gc) continue; const i = k % C4, j = (k / C4) | 0, x = ch.x0 + i / 4, y = ch.y0 + j / 4; repaintWorldRect(x, y, x + .25, y + .25); }
   const df = W.dirtyFog; let m = 0;
   while (df.length && m < 6) { const [cx, cy, r] = df.shift(); m++; repaintWorldRect(cx - r - 1.5, cy - r - 1.5, cx + r + 1.5, cy + r + 1.5, true); }
   for (const e of W.events) {
@@ -325,7 +325,7 @@ function consume() {
         HC.delete(cx + "," + cy); hcK = NaN; const ch = W.chunks.get(M.ckey(cx, cy)); if (ch) { ch.g = null; ch.hf = null; ch.hm = undefined; ch.job = null; ch.qj = null; ch.lq = null; ch.lqSeason = null; ch.bakedSeason = null; ch.gc = null; ch.fc = null; ch.ov2 = null; ch.ov4 = null; }
       }
     }
-    else if (e.k === "bell") { floats.push({ x: e.b.x + 3.4, y: e.b.y + .9, t: "ding dong", c: "#f0c860", a: 0 }); }
+    else if (e.k === "bell") { if (!view.fast) floats.push({ x: e.b.x + 3.4, y: e.b.y + .9, t: "ding dong", c: "#f0c860", a: 0 }); }
   }
 }
 // ---------- overview tiles (1/4 scale) ----------
@@ -435,7 +435,7 @@ export function frame(now, rdt) {
     if (wk === "rain") { if (Math.random() < rdt * .035) { flash = 1; if (view.sfx) view.sfx("thunder"); } } flash = Math.max(0, flash - rdt * 2.6); if (flash > .02) { ctx.fillStyle = "rgba(226,232,255," + (flash * .28).toFixed(3) + ")"; ctx.fillRect(0, 0, Vw, Vh); }
   }
   drawWeather(wk, rdt); if (!gfx) ctx.drawImage(vig, 0, 0);
-  if (Z >= 2 && !over) drawTexts(rdt);
+  if (Z >= 2 && !over && !view.fast) drawTexts(rdt); else if (view.fast) floats.length = 0;
 }
 function drawAurora(a) {
   const prev = ctx.globalCompositeOperation; ctx.globalCompositeOperation = "lighter"; const H = Vh * .5, step = Math.max(2, Math.round(Vw / 160));

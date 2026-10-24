@@ -432,14 +432,16 @@ function welcomeBack() {
 $("wbok").addEventListener("click", () => $("wb").hidden = true);
 function markSeen() { try { const S = W.S; localStorage.setItem(seenKey, JSON.stringify({ seed: S.seed, tick: S.tick, res: M.totalRes(S), pop: S.people.length })); } catch (e) { } }
 // ---------- main loop ----------
-let last = performance.now(), uiAcc = 0, saveAcc = 0, mmAcc = 1;
+let SIMBUDGET = +(new URLSearchParams(location.search).get("sb") || 26), last = performance.now(), uiAcc = 0, saveAcc = 0, mmAcc = 1;
 function loop(now) {
   requestAnimationFrame(loop);
-  const rdt = Math.min(.25, (now - last) / 1000); if (now - last < (view.gfx >= 2 && view.zoom < 1 ? 45 : 30)) return; last = now; watchSpeed(rdt);
+  const rdt = Math.min(.25, (now - last) / 1000); if (now - last < (view.fast ? 50 : view.gfx >= 2 && view.zoom < 1 ? 45 : 30)) return; last = now; watchSpeed(rdt);
   if (!W) return;
   if (LIVE) M.advance(W, M.tickNow(W.S, Date.now()), 80);
   else {
-    acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; for (let i = 0; i < n; i++) M.step(W);
+    acc += rdt * speed / M.DT; const n = Math.min(400, Math.floor(acc)); acc -= n; const t0 = performance.now();
+    for (let i = 0; i < n; i++) { M.step(W); if ((i & 3) === 3 && performance.now() - t0 > SIMBUDGET) { acc = 0; break; } } // fast-forward never starves the picture: what does not fit is dropped
+    view.fast = speed > 20;
     // At 1x the clock is the real time of day. In fast-forward the clock runs fast too, so a test world can be sped through
     // the night into the morning (villagers keep their real day and night rhythm, only quicker).
     if (speed === 1) W.S.t0 = Date.now() - W.S.tick * 250 + (W.S.clockShift || 0); else W.S.clockShift = W.S.t0 + W.S.tick * 250 - Date.now();
@@ -455,7 +457,7 @@ function loop(now) {
     else if (e.k === "trek") feed(e.what === "start" ? "🧭" : "🏠", e.what === "start" ? "Expedition set out " + e.dir : "Expedition is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : ""));
     else if (e.k === "boat") { if (e.what === "start") SND.sfx("horn"); feed("⛵", e.what === "start" ? "The boat sailed out" : "The boat is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : "")); }
     else if (e.k === "town") feed("🏕️", e.name + " was founded");
-    else if (e.k === "gain" && view.zoom >= 2) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
+    else if (e.k === "gain" && view.zoom >= 2 && speed <= 20) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
   }
   if (mode === "follow") { const wg = W.S.wagon; view.cam.x += (G.sx(wg.x, wg.y) - view.cam.x) * .06; view.cam.y += (G.sy(wg.x, wg.y) - 10 - view.cam.y) * .06; if (W.S.phase === "settled") mode = null; }
   G.frame(now, rdt); townLabels();

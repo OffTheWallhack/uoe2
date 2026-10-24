@@ -42,7 +42,15 @@ function islandOf(cx, cy) {
   ISLC.set(key, r); if (ISLC.size > 4000) ISLC = new Map(); return r;
 }
 export const islandIn = islandOf;
+// the same spot is asked about many times in a row (water, height, river, slope), so the last answers are remembered
+const EC_N = 1 << 14, ECx = new Float64Array(EC_N).fill(NaN), ECy = new Float64Array(EC_N), ECv = new Float64Array(EC_N);
+export function resetElevCache() { ECx.fill(NaN); }
 export function elev(x, y) {
+  const h = (Math.imul((x * 8) | 0, 73856093) ^ Math.imul((y * 8) | 0, 19349663)) & (EC_N - 1);
+  if (ECx[h] === x && ECy[h] === y) return ECv[h];
+  const v = elevRaw(x, y); ECx[h] = x; ECy[h] = y; ECv[h] = v; return v;
+}
+function elevRaw(x, y) {
   const e = baseElev(x, y);
   if (e < SEA - .03 && x * x + y * y > 4900) {
     const I = islandOf(Math.floor(x / ISL), Math.floor(y / ISL));
@@ -191,7 +199,7 @@ function newPerson(W, x, y) {
 // The wagon always starts at the middle of the map, so a new world slides the terrain until the start is solid, dry, flat ground
 // where the settlers can actually settle (about 1 seed in 14 used to start on a beach). Old saves keep their terrain (S.re is missing).
 function startSpots(seed, re) {
-  GVN = 2; SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
+  resetElevCache(); GVN = 2; SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
   const sa = mkRng(seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa); OVER = new Map(); ISLC = new Map();
   let n = 0;
   for (let y = -12; y <= 12; y += 2) for (let x = -12; x <= 12; x += 2) {
@@ -203,7 +211,7 @@ function startSpots(seed, re) {
 }
 function pickStart(seed) { let best = 0, bn = -1; for (let re = 0; re < 40; re++) { const n = startSpots(seed, re); if (n >= 25) return re; if (n > bn) { bn = n; best = re; } } return best; }
 export function wrap(S) {
-  GVN = S.gv || 0; SX = ((mkRng(S.seed)() * 20000) | 0) + (S.re || 0) * 7919; SY = ((mkRng(S.seed + 1)() * 20000) | 0) + (S.re || 0) * 6577;
+  resetElevCache(); GVN = S.gv || 0; SX = ((mkRng(S.seed)() * 20000) | 0) + (S.re || 0) * 7919; SY = ((mkRng(S.seed + 1)() * 20000) | 0) + (S.re || 0) * 6577;
   const sa = mkRng(S.seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa);
   const W = { S, chunks: new Map(), occ: new Map(), events: [], trail: [], dirtyGround: [], dirtyFog: [], newChunks: [], rt: new Map(), unr: new Map() };
   // trail from the entry point to the start clearing
@@ -1443,7 +1451,7 @@ function boatDiscover(W) {
 // ---------- the whole world, one tick ----------
 export function pathAt(S, d) { const P = S.wagon.path; if (!P) return { x: S.wagon.x, y: S.wagon.y }; const i = clamp(Math.floor(d / .25), 0, P.length - 1); return P[i]; }
 // several worlds can live in one page (e.g. while resyncing); terrain helpers follow the active one
-export function activate(W) { if (ACTIVE === W) return; ACTIVE = W; ISLC = new Map(); GVN = W.gvn || 0; SX = W.sx; SY = W.sy; DX = W.dx; DY = W.dy; OVER = W.over; ROAD = W.road; }
+export function activate(W) { if (ACTIVE === W) return; ACTIVE = W; ISLC = new Map(); resetElevCache(); GVN = W.gvn || 0; SX = W.sx; SY = W.sy; DX = W.dx; DY = W.dy; OVER = W.over; ROAD = W.road; }
 export function step(W) {
   activate(W);
   const S = W.S; S.tick++;
