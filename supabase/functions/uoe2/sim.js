@@ -58,30 +58,53 @@ function elevRaw(x, y) {
   }
   return e;
 }
+// World version 3 (new worlds): biomes are about three times bigger and their edges are warped and ragged instead of round blobs.
+// `bn` is the biome noise: the same as `vn` for old worlds, big and wobbly for new ones.
+const bn = (x, y, s, ox, oy) => {
+  if (GVN < 3) return vn(x + ox, y + oy, s);
+  const wx = x + (vn(x + 800, y - 400, 41) - .5) * 52 + (vn(x - 300, y + 900, 11) - .5) * 9, wy = y + (vn(x - 650, y + 1100, 41) - .5) * 52 + (vn(x + 500, y - 700, 11) - .5) * 9;
+  return vn(wx + ox, wy + oy, s * 3.2) + (vn(x * .9 + ox, y * .9 - oy, 4.5) - .5) * .07;
+};
 // desert: sand dunes on far, low land
 export function desertV(x, y) {
-  if (x * x + y * y < 4900) return -1; const n = vn(x - 6100, y + 2300, 55) - .5; if (n <= 0) return n;
+  if (x * x + y * y < 4900) return -1; const n = bn(x, y, 55, -6100, 2300) - .5 - (GVN >= 3 ? .22 : 0); if (n <= 0) return n;
   const e = baseElev(x, y); return e < SEA + .035 || e > SEA + .3 ? -1 : n;
 }
 // swamp: low wet ground near the water, far from the start
 export function swampV(x, y) {
-  if (x * x + y * y < 6400) return -1; const n = vn(x + 2100, y - 7300, 30) - .5; if (n <= -.18) return -1;
-  if (desertV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .008 || e > SEA + .14 ? -1 : n + .12;
+  if (x * x + y * y < 6400) return -1; const n = bn(x, y, 30, 2100, -7300) - .5 - (GVN >= 3 ? .16 : 0); if (n <= -.18) return -1;
+  if (desertV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .008 || e > SEA + .14 ? -1 : n + (GVN >= 3 ? .02 : .12);
 }
 // frozen tundra: permanent snow, more of it towards the highlands
 export function tundraV(x, y) {
-  if (x * x + y * y < 10000) return -1; const hl = clamp((-(x * DX + y * DY) - 40) / 400, 0, .06), n = vn(x - 3300, y + 5500, 52) - .5 + hl; if (n <= .2) return -1;
+  if (x * x + y * y < 10000) return -1; const hl = clamp((-(x * DX + y * DY) - 40) / 400, 0, .06), n = bn(x, y, 52, -3300, 5500) - .5 + hl - (GVN >= 3 ? .1 : 0); if (n <= .2) return -1;
   if (desertV(x, y) > 0 || swampV(x, y) > 0) return -1; return baseElev(x, y) < SEA + .02 ? -1 : n;
 }
 // golden grove: maples and larches in autumn colours
 export function groveV(x, y) {
-  if (x * x + y * y < 6400) return -1; const n = vn(x + 5300, y + 1900, 26) - .5; if (n <= -.02) return -1;
+  if (x * x + y * y < 6400) return -1; const n = bn(x, y, 26, 5300, 1900) - .5 - (GVN >= 3 ? .14 : 0); if (n <= -.02) return -1;
   if (desertV(x, y) > 0 || swampV(x, y) > 0 || tundraV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .03 || e > SEA + .45 ? -1 : n + .1;
 }
 // World version 2 (new worlds): a wide land with seas, lakes, highlands and plains in all directions, so that villages can lie
 // hundreds of steps apart. Worlds saved before that (gv missing) keep the old coast-and-mountains terrain.
 let GVN = 0;
+const GVN3 = W => (W.S.gv || 0) >= 3;
 function baseElev(x, y) {
+  if (GVN >= 3) {
+    // version 3: bigger land shapes with warped coasts, wide plains, small ponds, one great sea ahead of the valley and mountain ranges far away
+    const d = x * DX + y * DY;
+    const wx = x + (vn(x + 1700, y - 300, 120) - .5) * 140, wy = y + (vn(x - 900, y + 2100, 120) - .5) * 140;
+    let e = vn(wx + 3000, wy - 1000, 130) * .30 + vn(wx, wy, 42) * .15 + vn(wx + 77, wy + 33, 9) * .07 + vn(x - 2500, y + 6100, 340) * .21 + vn(x + 9000, y - 4000, 950) * .27;
+    e = .56 + (e - .5) * 1.5;
+    const pl = clamp((vn(x - 4400, y + 7700, 300) - .5) * 5, 0, 1);               // plains: wide, flat, always above the water
+    e = e * (1 - pl) + (SEA + .16 + (e - .535) * .12) * pl;
+    const pond = clamp((vn(x + 1500, y + 4400, 30) - .74) * 9, 0, 1); e -= pond * .2 * (1 - pl * .5); // small ponds and tarns
+    const dd = d + (vn(x + 5000, y - 2000, 170) - .5) * 240 + (vn(x - 800, y + 600, 45) - .5) * 60; // the coast of the great sea wanders instead of running straight
+    e += -clamp((dd - 70) * .0035, 0, .32) * (1 - clamp((dd - 330) / 170, 0, 1));    // the sea in front of the valley: a wide band, then more land beyond
+    const rg = 1 - Math.abs(vn(x - 7700, y + 1300, 360) * 2 - 1); e += Math.pow(rg, 3) * .36 * clamp((vn(x + 400, y - 5200, 640) - .3) * 3, 0, 1);
+    const w = clamp(1 - Math.hypot(x, y) / 20, 0, 1), ws = w * w * (3 - 2 * w);
+    return e * (1 - ws) + (SEA + .052) * ws;
+  }
   if (GVN >= 2) {
     const d = x * DX + y * DY;
     let e = vn(x + 3000, y - 1000, 48) * .30 + vn(x, y, 14) * .17 + vn(x + 77, y + 33, 5) * .09 + vn(x - 2500, y + 6100, 150) * .22 + vn(x + 9000, y - 4000, 430) * .22;
@@ -105,14 +128,29 @@ const ax = (x, y) => [x * DX + y * DY, -x * DY + y * DX]; // u: towards the sea,
 export const fromAx = (u, v) => ({ x: u * DX - v * DY, y: u * DY + v * DX });
 const anchor = (x, y, u0, v0, r) => { const [u, v] = ax(x, y); return Math.max(0, 1 - Math.hypot(u - u0, v - v0) / r); };
 // open glades in the woods (new worlds only, so that old saves keep their trees)
-export const gladeV = (x, y) => Math.max(0, vn(x - 5200, y + 2300, 22) - .7) * 3;
+export const gladeV = (x, y) => Math.max(0, (GVN >= 3 ? vn(x - 5200, y + 2300, 34) : vn(x - 5200, y + 2300, 22)) - .7) * 3;
 // birch grove
-export const birchV = (x, y) => Math.max(vn(x + 9100, y + 300, 22) - .2, DEMO ? anchor(x, y, 4, -17, 11) * 1.1 : 0);
+export const birchV = (x, y) => Math.max(bn(x, y, 22, 9100, 300) - (GVN >= 3 ? .17 : .2), DEMO ? anchor(x, y, 4, -17, 11) * 1.1 : 0);
 // flower meadow
-export const flowerV = (x, y) => Math.max(vn(x - 8000, y + 4000, 18) - .22, DEMO ? anchor(x, y, -9, 5, 8) * 1.1 : 0);
+export const flowerV = (x, y) => Math.max(bn(x, y, 18, -8000, 4000) - (GVN >= 3 ? .2 : .22), DEMO ? anchor(x, y, -9, 5, 8) * 1.1 : 0);
 // the stream: from the highlands down to the lake
-export function riverD(x, y) { const [u, v] = ax(x, y); if (u < -70) return 99; const vc = 11 + Math.sin(u * .11) * 3.5 + (vn(u * .4 + 500, 7, 5) - .5) * 5; return Math.abs(v - vc); }
-const riverW = (x, y) => { const u = x * DX + y * DY; return .55 + clamp((u - 4) * .025, 0, .8); };
+// New worlds (v3) also have winding rivers far from the start: wherever a big noise field crosses zero. They are thin in places and
+// thick (a real river) in others, and they stop where the land is high (a spring in the mountains).
+function riverD3(x, y) {
+  if (x * x + y * y < 2500) return 99;
+  if (vn(x + 7000, y - 3000, 520) < .36) return 99;                 // not everywhere: big dry stretches between the rivers
+  const wx = x + (vn(x + 300, y + 700, 60) - .5) * 70, wy = y + (vn(x - 200, y - 500, 60) - .5) * 70;
+  const n = (vn(wx + 4100, wy - 800, 240) * 2 - 1) * 60, d = Math.abs(n);
+  if (d > 8) return d;
+  return elev(x, y) > SEA + .26 ? 99 : d;
+}
+export function riverD(x, y) {
+  const [u, v] = ax(x, y); let d = 99;
+  if (u >= -70) { const vc = 11 + Math.sin(u * .11) * 3.5 + (vn(u * .4 + 500, 7, 5) - .5) * 5; d = Math.abs(v - vc); }
+  if (GVN >= 3) { const d3 = riverD3(x, y); if (d3 < d) d = d3; }
+  return d;
+}
+export const riverW = (x, y) => { const u = x * DX + y * DY, w0 = .55 + clamp((u - 4) * .025, 0, .8); return GVN >= 3 ? Math.max(w0, .9 + 3.4 * clamp((vn(x + 200, y - 900, 380) - .3) * 2.5, 0, 1)) : w0; };
 export const isRiver = (x, y) => riverD(x, y) < riverW(x, y) && elev(x, y) >= SEA && !(OVER.size && OVER.has(okey(x, y)));
 // alpine band: dwarf pine (kosodrevina) and mountain meadow
 export const alpineV = h => h >= 20 && h < 38;
@@ -128,9 +166,9 @@ export const lakeV = (x, y) => { if (OVER.size) { const o = OVER.get(okey(x, y))
 export const isWater = (x, y) => { if (OVER.size) { const o = OVER.get(okey(x, y)); if (o && o.k === "f") return false; } return elev(x, y) < SEA; };
 export const wet = (x, y) => (OVER.size && OVER.has(okey(x, y))) ? false : (elev(x, y) < SEA || riverD(x, y) < riverW(x, y));
 export const steep = (x0, y0, x1, y1) => Math.abs(heightAt(x1, y1) - heightAt(x0, y0)) > 3.6;
-export const fdV = (x, y) => vn(x + 200, y + 200, 11) * .65 + vn(x, y + 77, 4) * .35 - Math.max(0, 1 - Math.hypot(x, y) / 10) * .45;
+export const fdV = (x, y) => (GVN >= 3 ? vn(x + 200, y + 200, 26) * .65 + vn(x, y + 77, 5) * .35 : vn(x + 200, y + 200, 11) * .65 + vn(x, y + 77, 4) * .35) - Math.max(0, 1 - Math.hypot(x, y) / 10) * .45;
 export const lfV = (x, y) => vn(x + 40, y + 40, 5) * .6 + vn(x, y, 1.7) * .4;
-export const rockV = (x, y) => vn(x + 500, y - 300, 10) * .75 + vn(x, y, 3) * .25 - Math.max(0, 1 - Math.hypot(x, y) / 12) * .5;
+export const rockV = (x, y) => (GVN >= 3 ? vn(x + 500, y - 300, 23) * .75 + vn(x, y, 3) * .25 : vn(x + 500, y - 300, 10) * .75 + vn(x, y, 3) * .25) - Math.max(0, 1 - Math.hypot(x, y) / 12) * .5;
 // ---------- buildings catalog ----------
 export const TYPES = {
   camp:   { name: "Wagon Camp", a: 3, b: 3, cost: {}, beds: 5, drop: ["wood", "stone", "food"], time: 0, hall: true, d: "A tent by the wagon. The first home of the village." },
@@ -167,7 +205,7 @@ const TRAITS = ["early riser", "storyteller", "stubborn", "dreamer", "hard worke
 // W = { S: serializable state, chunks: Map, occ: Map, ... }
 export function createWorld(seed, t0) {
   const S = {
-    v: 1, gv: 2, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
+    v: 1, gv: 3, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
     chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false, price: { food: 1, wood: 1, stone: 1 }, trade: { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }, pact: {}, marketT: 60, tradeT: 120,
@@ -199,7 +237,7 @@ function newPerson(W, x, y) {
 // The wagon always starts at the middle of the map, so a new world slides the terrain until the start is solid, dry, flat ground
 // where the settlers can actually settle (about 1 seed in 14 used to start on a beach). Old saves keep their terrain (S.re is missing).
 function startSpots(seed, re) {
-  resetElevCache(); GVN = 2; SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
+  resetElevCache(); GVN = 3; SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
   const sa = mkRng(seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa); OVER = new Map(); ISLC = new Map();
   let n = 0;
   for (let y = -12; y <= 12; y += 2) for (let x = -12; x <= 12; x += 2) {
@@ -238,7 +276,7 @@ export function getChunk(W, cx, cy, create) {
 function genChunk(W, cx, cy) {
   const S = W.S, GV = S.gv || 0, ch = { cx, cy, k: ckey(cx, cy), x0: cx * C, y0: cy * C, trees: [], rocks: [], bushes: [], shore: [], wear: new Uint16Array(C4 * C4), fog: new Uint8Array(C * C).fill(1) };
   const trail = W.trail.filter(p => p.x > ch.x0 - 2 && p.x < ch.x0 + C + 2 && p.y > ch.y0 - 2 && p.y < ch.y0 + C + 2);
-  const wl = []; for (let ry = Math.floor((ch.y0 - 8) / RG); ry <= Math.floor((ch.y0 + C + 8) / RG); ry++) for (let rx = Math.floor((ch.x0 - 8) / RG); rx <= Math.floor((ch.x0 + C + 8) / RG); rx++) { const w = wonderIn(W, rx, ry); if (w) wl.push({ x: w.x, y: w.y, cr: WONDERS[w.k].cr || 4 }); }
+  const wl = []; for (let ry = Math.floor((ch.y0 - 8) / RG); ry <= Math.floor((ch.y0 + C + 8) / RG); ry++) for (let rx = Math.floor((ch.x0 - 8) / RG); rx <= Math.floor((ch.x0 + C + 8) / RG); rx++) { const w = wonderIn(W, rx, ry); if (w) wl.push({ x: w.x, y: w.y, cr: (WONDERS[w.k].cr || 4) * (GV >= 3 ? 1.9 : 1) }); }
   const nearTrail = (x, y, r) => trail.some(p => Math.abs(p.x - x) < r && Math.abs(p.y - y) < r && Math.hypot(p.x - x, p.y - y) < r);
   for (let y = ch.y0 + .4; y < ch.y0 + C; y += .75) for (let x = ch.x0 + .4; x < ch.x0 + C; x += .75) {
     const jx = x + (ih(Math.floor(x * 9) + SX, Math.floor(y * 7)) - .5) * .7, jy = y + (ih(Math.floor(x * 5), Math.floor(y * 3) + SY) - .5) * .7;
@@ -615,9 +653,10 @@ function pickJob(W, p, H) {
     if (!job && !t) t = pickNear(W, dc.x, dc.y, 30, "trees", o => !o.felled && !o.gone && free({ l: "trees", c: ckeyOf(o), i: o.i }), 4);
     if (!job && t) { job = "wood"; obj = ref("trees", t.ch, t.o); tx = t.o.x + .5; ty = t.o.y + .5; }
   }
-  if (!job && role === "scout") {
+  const v3 = (S.gv || 0) >= 3, wander = v3 && S.phase === "settled" && !tw.hungry && !p.carry && !p.watch && rnd(W) < .03; // now and then somebody walks out to see what lies beyond the last known hill
+  if (!job && (role === "scout" || wander)) {
     const a = rnd(W) * Math.PI * 2;
-    for (let d = 4; d < 44; d++) { const x = home.x + Math.cos(a) * d, y = home.y + Math.sin(a) * d; if (isWater(x, y)) continue; if (hidden(W, x, y)) { job = "scout"; tx = x; ty = y; break; } }
+    for (let d = 4; d < (v3 ? 120 : 44); d++) { const x = home.x + Math.cos(a) * d, y = home.y + Math.sin(a) * d; if (isWater(x, y)) continue; if (hidden(W, x, y)) { job = "scout"; tx = x; ty = y; break; } }
   }
   if (!job && !p.carry) {
     // nothing within reach of the village: nobody just stands around. Look farther, plant young trees, or tidy up around the houses.
@@ -695,8 +734,8 @@ function findRoute(W, x0, y0, x1, y1) {
   const N = nw * nh, gs = new Float32Array(N).fill(1e9), par = new Int32Array(N).fill(-1), st = new Uint8Array(N), wk = new Uint8Array(N), hh = new Float32Array(N);
   const wx = i => xa + (i % nw) * s, wy = i => ya + Math.floor(i / nw) * s;
   const fh = S.towns.filter(t => Math.hypot(t.x - x0, t.y - y0) > 14 && Math.hypot(t.x - x1, t.y - y1) > 14);
-  const cell = i => { let v = wk[i]; if (v) return v; const x = wx(i), y = wy(i); hh[i] = heightAt(x, y); if (isWater(x, y)) v = 2; else if (isRiver(x, y)) v = 3; else { v = 1; const rl = isRoad(x, y); if (rl) v = 4; else { const o = occAt(W, x, y); if (o && !TYPES[o.type].field && o.type !== "bridge") v = 5; } for (const t of fh) if (Math.abs(t.x - x) < 11 && Math.abs(t.y - y) < 11 && Math.hypot(t.x - x, t.y - y) < 11) { v = v === 4 ? 4 : 6; break; } } wk[i] = v; return v; };
-  const mult = v => v === 3 ? 3 : v === 4 ? .6 : v === 5 ? 6 : v === 6 ? 5 : 1;
+  const cell = i => { let v = wk[i]; if (v) return v; const x = wx(i), y = wy(i); hh[i] = heightAt(x, y); if (isWater(x, y)) v = 2; else if (isRiver(x, y)) v = 3; else { v = 1; const rl = isRoad(x, y); if (rl) v = 4; else { const o = occAt(W, x, y); if (o && !TYPES[o.type].field && o.type !== "bridge") v = 5; else if (wearAt(W, x, y) > .45) v = 7; } for (const t of fh) if (Math.abs(t.x - x) < 11 && Math.abs(t.y - y) < 11 && Math.hypot(t.x - x, t.y - y) < 11) { v = v === 4 ? 4 : 6; break; } } wk[i] = v; return v; };
+  const mult = v => v === 3 ? 3 : v === 4 ? .6 : v === 5 ? 6 : v === 6 ? 5 : v === 7 ? .75 : 1;
   const sc = Math.max(0, Math.min(nw - 1, Math.round((x0 - xa) / s))), sr = Math.max(0, Math.min(nh - 1, Math.round((y0 - ya) / s))), gc = Math.max(0, Math.min(nw - 1, Math.round((x1 - xa) / s))), gr = Math.max(0, Math.min(nh - 1, Math.round((y1 - ya) / s)));
   const si = sr * nw + sc, gi = gr * nw + gc, hf = i => { const dx = Math.abs(i % nw - gc), dy = Math.abs(Math.floor(i / nw) - gr); return (Math.max(dx, dy) + .4142 * Math.min(dx, dy)) * s; };
   // binary heap of [f, idx]
@@ -759,7 +798,7 @@ function walk(W, p, spd) {
   // nobody walks into a lake: stop at the shore, look for another way, and after a while give the errand up
   if (isWater(nx, ny) && !isWater(p.x, p.y)) { p.blk = (p.blk || 0) + dt; p.steerT = 0; p.moving = false; if (p.blk > 4) { if (p.trek || p.state === "pioneer") p.blk = 0; else giveUp(W, p); } return false; }
   p.blk = 0; p.x = nx; p.y = ny; p.moving = true;
-  if (inR && W.S.phase === "settled" && !p.trek) { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + 1; }
+  if (inR && W.S.phase === "settled" && !p.trek) { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + (p.trade || p.job === "visit" || p.state === "pioneer" ? 3 : 1); }
   return false;
 }
 function updatePerson(W, p, H) {
@@ -768,7 +807,7 @@ function updatePerson(W, p, H) {
   const ptw0 = S.towns.length ? townOf(W, p) : null, hg = ptw0 ? ptw0.hungry : S.hungry, spd = (hg ? .8 : 1.1) * (1 + rallyStr(S) * .25) * (1 + wonderBonus(S, "speed") + townBonus(ptw0, "speed"));
   if (S.phase === "choose") { p.t -= DT; if (p.t < 0) { p.t = 3 + rnd(W) * 5; const a = rnd(W) * 6.3; p.tx = S.wagon.x - 1 + Math.cos(a) * 2; p.ty = S.wagon.y + 1.2 + Math.sin(a) * 1.4; } walk(W, p, .6); return; }
   if (S.phase === "travel") { const q = pathAt(S, S.wagon.d - 1.4 - (p.id % 5) * .9); p.tx = q.x + (p.id % 2 ? .7 : -.7); p.ty = q.y + (p.id % 2 ? -.5 : .5); walk(W, p, 1.6); if (p.moving) addWear(W, p.x, p.y, .012 * DT); return; }
-  p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? 7.5 : 3.4); }
+  p.revT -= DT; if (p.revT <= 0) { p.revT = .75; reveal(W, p.x, p.y, p.trek ? ((S.gv || 0) >= 3 ? 9 : 7.5) : p.job === "scout" ? 6 : 3.4); }
   switch (p.state) {
     case "arrive": if (walk(W, p, spd)) { p.state = "idle"; p.t = 1; } break;
     case "idle": case "wait": p.t -= DT; if (p.t <= 0) think(W, p, H); break;
@@ -807,7 +846,8 @@ function updatePerson(W, p, H) {
     case "patrol": if (!nightWatch(p, H)) { p.state = "idle"; think(W, p, H); break; } if (p.t > 0) { p.t -= DT; break; } if (walk(W, p, spd * .7)) { p.t = 4 + rnd(W) * 10; nextRound(W, p); } break;
     case "church": if (H >= 10.6 || H < 9) { p.inside = false; p.state = "idle"; p.t = rnd(W) * 2; } break;
   }
-  if (p.moving && S.towns.some(t => Math.hypot(t.x - p.x, t.y - p.y) < 45)) { const f = addWear(W, p.x, p.y, .034 * DT * (p.trade ? 2.5 : 1)); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
+  const roadWalker = p.trade || p.job === "visit" || p.state === "pioneer"; // people walking between villages tread a path all the way, not only near a village
+  if (p.moving && (roadWalker || S.towns.some(t => Math.hypot(t.x - p.x, t.y - p.y) < 45))) { const f = addWear(W, p.x, p.y, .034 * DT * (p.trade ? 2.5 : p.job === "visit" ? 1.6 : p.state === "pioneer" ? 1.3 : 1)); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
 }
 function finishWork(W, p) {
   const S = W.S, j = p.job, o = deref(W, p.obj); p.obj = null;
@@ -901,7 +941,16 @@ function thinRoads(S) {
   S.road = S.road.filter(k => ROAD.get(k) === 1); S.road2 = S.road2.filter(k => ROAD.get(k) === 2);
 }
 // roads only grow near a village and only out of the village or out of an existing road, so they never wander through the wild
-const roadZone = (S, x, y) => S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 30);
+const roadZone = (S, x, y) => S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 30) || nearLink(S, x, y);
+// is (x, y) within 10 tiles of the straight way between two villages that are less than 700 steps apart?
+function nearLink(S, x, y) {
+  const T = S.towns; if (T.length < 2) return false;
+  for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
+    const a = T[i], b = T[j], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy; if (L2 > 700 * 700) continue;
+    const t = clamp(((x - a.x) * dx + (y - a.y) * dy) / (L2 || 1), 0, 1); if (Math.hypot(a.x + dx * t - x, a.y + dy * t - y) < 10) return true;
+  }
+  return false;
+}
 const roadJoins = (x, y) => { if (ROAD.has((x + 1) + ":" + y) || ROAD.has((x - 1) + ":" + y) || ROAD.has(x + ":" + (y + 1)) || ROAD.has(x + ":" + (y - 1))) return true; return ACTIVE.S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 9); };
 function plan(W) {
   const S = W.S; if (!camp(W)) return;
@@ -933,7 +982,7 @@ function plan(W) {
   const wk = Object.keys(S.wade); if (wk.length > 300) { const keep = wk.sort((a, b) => S.wade[b] - S.wade[a]).slice(0, 60); const nw = {}; for (const k of keep) nw[k] = S.wade[k]; S.wade = nw; }
   if (!S.b.some(b => b.type === "bridge" && !b.done)) {
     let bk = null, bv = 0; for (const k in S.wade) if (S.wade[k] > bv) { bv = S.wade[k]; bk = k; }
-    if (bk && bv >= 600) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && resOf(S, richest("wood")).wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; } else if (bk) S.wade[bk] = 0; }
+    if (bk && bv >= (GVN3(W) ? 360 : 600)) { const [bx, by] = bk.split(":").map(Number), sp = bridgeSpan(W, bx + .5, by + .5); if (S.b.some(b => b.type === "bridge" && Math.hypot(b.x - bx, b.y - by) < 10)) { S.wade[bk] = 0; sp.err = "near"; } if (!sp.err && resOf(S, richest("wood")).wood >= sp.len * 2) { addBuilding(W, "bridge", sp.x, sp.y, "ai", sp); addLog(W, "Tired of wet feet, the villagers started a bridge over the stream."); S.wade = {}; } else if (bk) S.wade[bk] = 0; }
   }
   expeditions(W);
   // the way between two villages is known: people walk it, so no dark gaps are left between them
@@ -1079,6 +1128,11 @@ export function wonderIn(W, rx, ry) {
     }
   } finally { OVER = keepOver; }
   cache.set(key, res); return res;
+}
+// every wonder inside a rectangle of the world (the land is made from the seed, so this works for land nobody has seen yet)
+export function wondersInRect(W, x0, y0, x1, y1) {
+  const out = []; for (let ry = Math.floor(y0 / RG); ry <= Math.floor(y1 / RG); ry++) for (let rx = Math.floor(x0 / RG); rx <= Math.floor(x1 / RG); rx++) { const w = wonderIn(W, rx, ry); if (w) out.push(w); }
+  return out;
 }
 // ---------- treasures and hidden places: smaller finds, far more often than wonders ----------
 export const TREASURES = {
@@ -1245,7 +1299,7 @@ function trekStep(W, p, H) {
   if (arrived) {
     p.unr = 0; T.i++; T.bd = 1e9; T.stuck = 0; T.sk = 60;
     if (wp.k === "home") { trekFinish(W); return; }
-    if (wp.last) { T.rest = 600 + rnd(W) * 600; T.restAct = "Making camp and studying the land"; addLog(W, "The explorers reached the place they were heading for and are looking around."); }
+    if (wp.last) { if ((S.gv || 0) >= 3 && !isWater(p.x, p.y)) S.campSite = { x: p.x, y: p.y }; T.rest = 600 + rnd(W) * 600; T.restAct = "Making camp and studying the land"; addLog(W, "The explorers reached the place they were heading for and are looking around."); }
     else if (wp.k === "look") { T.rest = 480 + rnd(W) * 600; T.restAct = "Exploring the area"; }
     else { T.rest = (480 + rnd(W) * 720) * (T.rf || 1); T.restAct = wp.k === "back" ? "Resting on the way home" : "Resting and eating"; if (rnd(W) < .3) addLog(W, TREK_TALES[(rnd(W) * TREK_TALES.length) | 0].replace("%", p.name)); }
     return;
@@ -1264,20 +1318,21 @@ function trekStep(W, p, H) {
 }
 const TREK_TALES = ["% saw deer drinking at a stream.", "The explorers crossed a stream and refilled their water.", "A storm of birds rose from a meadow as the explorers passed.", "% found wild berries and everyone ate well.", "Rain came. The explorers waited under a rock.", "The explorers carved a mark into a tree so they can find the way back."];
 function trekAI(W, H) {
-  const S = W.S; if (S.trek || S.exp || S.phase !== "settled" || S.people.length < 9 || resOf(S, homeTown(W)).food < 40 || S.tick < 28800) return;
+  const S = W.S; const v3 = (S.gv || 0) >= 3;
+  if (S.trek || S.exp || S.phase !== "settled" || S.people.length < (v3 ? 7 : 9) || resOf(S, homeTown(W)).food < (v3 ? 30 : 40) || S.tick < (v3 ? 14400 : 28800)) return;
   if (H < 5.6 || H > (S.wantLand ? 16 : 9.5) || S.tick < (S.trekRetry || 0)) return;
-  if (S.tick - (S.lastTrek || 0) < (S.rumor ? 14400 : S.wantLand ? 21600 : 86400)) return;
+  if (S.tick - (S.lastTrek || 0) < (v3 ? (S.rumor ? 10800 : S.wantLand ? 14400 : 28800) : (S.rumor ? 14400 : S.wantLand ? 21600 : 86400))) return;
   const h = homeOf(W); let tx, ty;
   if (S.rumor) { tx = S.rumor.x + (rnd(W) - .5) * 8; ty = S.rumor.y + (rnd(W) - .5) * 8; }
   else {
     let best = -1e9;
-    const far = !!S.wantLand, cl = [];
-    for (let a = 0; a < 24; a++) for (const r of (far ? [TOWN_GAP + 25, TOWN_GAP + 80, TOWN_GAP + 140, TOWN_GAP + 210] : [45, 70, 95, 120])) {
+    const far = !!S.wantLand, GAPF = v3 ? ROAD_GAP : TOWN_GAP, cl = []; // when land for a village is wanted, explorers go far enough for a village to stand there
+    for (let a = 0; a < 24; a++) for (const r of (far ? [GAPF + 25, GAPF + 80, GAPF + 140, GAPF + 210] : v3 ? [60, 100, 150, 210, 280] : [45, 70, 95, 120])) {
       const ang = a / 24 * 6.283, x = h.x + Math.cos(ang) * r, y = h.y + Math.sin(ang) * r; if (isWater(x, y) || heightAt(x, y) > 34) continue;
-      if (far && (!S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= TOWN_GAP * .95) || !siteOk(W, x, y, true))) continue;
+      if (far && (!S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= GAPF * .95) || !siteOk(W, x, y, true))) continue;
       let ok = 0; for (let k = 1; k <= 8; k++) if (!isWater(h.x + Math.cos(ang) * r * k / 8, h.y + Math.sin(ang) * r * k / 8)) ok++; if (ok < (far ? 4 : 7)) continue;
       let hid = 0; for (const [dx, dy] of [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]]) if (hidden(W, x + dx, y + dy)) hid++;
-      const sc = hid * 10 - r * (far ? .02 : .12) + ih(a * 31 + (S.seed & 255), r) * 4; cl.push({ sc, x, y });
+      const sc = hid * 10 - r * (far ? .02 : v3 ? .05 : .12) + ih(a * 31 + (S.seed & 255) + (v3 ? S.tick >> 6 : 0), r) * 4; cl.push({ sc, x, y });
     }
     cl.sort((p, q) => q.sc - p.sc); for (const c of cl.slice(0, 5)) if (landRoute(W, h, c)) { best = c.sc; tx = c.x; ty = c.y; break; }
     if (best < -1e8) { S.trekRetry = S.tick + 28800; return; }
@@ -1628,7 +1683,7 @@ function tradeAI(W, H) {
 // to it are explored), far from the other villages, and either next to a wonder (which then gives that village a gift) or in a
 // place that is rich in timber, stone or fertile land.
 // Towns are far apart: a few hundred steps, a real journey on foot (about 6 minutes for one town to reach the next).
-const TOWN_GAP = 400, WONDER_GAP = 260, TOWN_REACH = 640, TRADE_REACH = 700;
+const TOWN_GAP = 400, WONDER_GAP = 260, TOWN_REACH = 640, TRADE_REACH = 700, ROAD_GAP = 150; // ROAD_GAP: a village on a trodden road between two villages may lie this close to them
 const WFX_PCT = 30; // a village beside a wonder gets +30% of what that wonder gives (or +12% walking speed)
 export const townBonus = (T, f) => (T && T.fx === f) ? (f === "speed" ? .12 : f === "come" ? 0 : WFX_PCT / 100) : 0;
 function exploredFrac(W, x, y, r) {
@@ -1640,6 +1695,9 @@ function corridorHidden(W, a, b) {
   for (let k = 1; k < 12; k++) for (const o of [-4, 0, 4]) { const x = a.x + (b.x - a.x) * k / 12 + nx * o, y = a.y + (b.y - a.y) * k / 12 + ny * o; if (isWater(x, y)) continue; n++; if (hidden(W, x, y)) h++; }
   return n ? h / n : 0;
 }
+// is there a well-trodden path (people have walked it a lot) within about 5 tiles of (x, y)?
+const TRAIL_PTS = [[0, 0], [5, 0], [-5, 0], [0, 5], [0, -5], [4, 4], [-4, -4], [4, -4], [-4, 4]];
+function onTrail(W, x, y) { let n = 0; for (const [dx, dy] of TRAIL_PTS) if (wearAt(W, x + dx, y + dy) >= .5) n++; return n >= 2; }
 function siteOk(W, x, y, blind) {
   if (wet(x, y) || isWater(x, y) || heightAt(x, y) > 22 || (!blind && hidden(W, x, y))) return false;
   for (let j = -2; j <= 2; j += 2) for (let k = -2; k <= 2; k += 2) if (wet(x + k, y + j) || lakeV(x + k, y + j) > .62 || steep(x + k, y + j, x + k + 1, y + j) || steep(x + k, y + j, x + k, y + j + 1)) return false;
@@ -1649,6 +1707,15 @@ function townSite(W) {
   const S = W.S; let best = null;
   const nearestTown = (x, y) => S.towns.reduce((a, t) => Math.hypot(t.x - x, t.y - y) < Math.hypot(a.x - x, a.y - y) ? t : a, S.towns[0]);
   const gapOk = (x, y, g) => S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= g);
+  // 0) the place where explorers made camp and looked around (they came back with food for the first night and a good feeling)
+  if (S.campSite) { // look for dry, flat ground within a few steps of the camp; give up on the camp after three tries
+    const c = S.campSite; c.tries = (c.tries || 0) + 1; if (c.tries >= 3) S.campSite = null;
+    for (const r of [0, 4, 8, 12]) for (let a = 0; a < (r ? 8 : 1); a++) {
+      const x = c.x + Math.cos(a * .785) * r, y = c.y + Math.sin(a * .785) * r, from = nearestTown(x, y), d = Math.hypot(from.x - x, from.y - y);
+      if (d > TOWN_REACH || !gapOk(x, y, ROAD_GAP) || !siteOk(W, x, y)) continue;
+      if (landRoute(W, from, { x, y })) { S.campSite = null; return { x, y, sc: 9, from, why: "where the explorers made camp", gap: ROAD_GAP }; }
+    }
+  }
   // 1) beside a wonder that no village uses yet
   const wl = [], rl = [];
   for (const w of S.wonders) {
@@ -1669,12 +1736,12 @@ function townSite(W) {
   const cands = [];
   for (let y = Math.floor((y0 - TOWN_REACH) / 12) * 12; y <= y1 + TOWN_REACH; y += 12) for (let x = Math.floor((x0 - TOWN_REACH) / 12) * 12; x <= x1 + TOWN_REACH; x += 12) {
     if (hidden(W, x, y)) continue;
-    const t = nearestTown(x, y), d = Math.hypot(t.x - x, t.y - y); if (d > TOWN_REACH || !gapOk(x, y, TOWN_GAP) || !siteOk(W, x, y)) continue;
-    if (exploredFrac(W, x, y, 10) < .7 || corridorHidden(W, t, { x, y }) > (d > 150 ? .6 : .25)) continue;
-    cands.push({ x, y, t, d });
+    const t = nearestTown(x, y), d = Math.hypot(t.x - x, t.y - y), g = (W.S.gv || 0) >= 3 && onTrail(W, x, y) ? ROAD_GAP : TOWN_GAP; if (d > TOWN_REACH || !gapOk(x, y, g) || !siteOk(W, x, y)) continue;
+    if (exploredFrac(W, x, y, (W.S.gv || 0) >= 3 ? 6 : 10) < .7 || corridorHidden(W, t, { x, y }) > (d > 150 ? .6 : .25)) continue;
+    cands.push({ x, y, t, d, g });
   }
   for (const c of cands) {
-    const { x, y, t, d } = c; let water = false;
+    const { x, y, t, d, g } = c; let water = false;
     for (let q = 0; q < 8 && !water; q++) for (let dd = 3; dd <= 12; dd += 3) if (wet(x + Math.cos(q * .785) * dd, y + Math.sin(q * .785) * dd)) { water = true; break; }
     let tr = 0, rk = 0, bu = 0;
     for (let cy = Math.floor((y - 10) / C); cy <= Math.floor((y + 10) / C); cy++) for (let cx = Math.floor((x - 10) / C); cx <= Math.floor((x + 10) / C); cx++) {
@@ -1683,10 +1750,10 @@ function townSite(W) {
       for (const o of ch.rocks) if (Math.abs(o.x - x) < 12 && Math.abs(o.y - y) < 12) rk++;
       for (const o of ch.bushes) if (Math.abs(o.x - x) < 10 && Math.abs(o.y - y) < 10) bu++;
     }
-    const sc = -(d - TOWN_GAP) * .004 + (water ? 3 : 0) + Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4 + (flowerV(x, y) > .45 || birchV(x, y) > .45 ? .8 : 0);
+    const sc = -(d - TOWN_GAP) * .004 + (g === ROAD_GAP ? 2.5 : 0) + (water ? 3 : 0) + Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4 + (flowerV(x, y) > .45 || birchV(x, y) > .45 ? .8 : 0);
     if (sc < 5) continue; // not worth leaving home for
     const why = rk >= 4 ? "in rocky hills with plenty of stone" : tr >= 24 ? "in a forest full of timber" : water && bu >= 2 ? "on fertile land by the water" : water ? "by the water" : "on good open land";
-    rl.push({ x, y, sc, from: t, why });
+    rl.push({ x, y, sc, from: t, why: g === ROAD_GAP ? why + ", right on the road" : why, gap: g });
   }
   rl.sort((a, b) => b.sc - a.sc); for (const c of rl.slice(0, 4)) if (landRoute(W, c.from, c)) return c;
   return null;
@@ -1699,7 +1766,7 @@ function expeditions(W) {
     const there = mem.filter(p => p.state === "camp").length, late = S.tick - e.at > 28800;
     if (!lead) { S.exp = null; return; }
     if (there >= Math.min(2, mem.length) || late) {
-      const need = (e.wid ? WONDER_GAP : TOWN_GAP) * .9, tooNear = S.towns.some(t => Math.hypot(t.x - lead.x, t.y - lead.y) < need);
+      const need = (e.wid ? WONDER_GAP : (e.gap || TOWN_GAP)) * .9, tooNear = S.towns.some(t => Math.hypot(t.x - lead.x, t.y - lead.y) < need);
       const site = tooNear ? null : findSite(W, "outpost", lead.x, lead.y, 0, 9);
       if (!site) { if (late) { for (const p of mem) { p.state = "idle"; p.pioneer = 0; } S.exp = null; S.lastFound = S.tick; addLog(W, "The pioneers found no good place and came back."); } return; }
       const id = S.towns.length + 1, name = e.name, b = addBuilding(W, "outpost", site.x, site.y, "ai"); b.done = true;
@@ -1722,13 +1789,13 @@ function expeditions(W) {
   }
   if (S.phase !== "settled") return;
   // a full storehouse means the village has outgrown its valley: new settlements follow sooner (at least ~2.5 to 5 hours apart)
-  const need = 12 + 6 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0), full = S.towns.some(t => KINDS.filter(k => resOf(S, t)[k] >= capT(W, t) * .8).length >= 2), gap = full ? 36000 : 72000;
-  if (n < need || since < gap || S.towns.length >= 10) return;
+  const v3 = (S.gv || 0) >= 3, need = v3 ? 10 + 4 * (S.towns.length - 1) : 12 + 6 * (S.towns.length - 1), since = S.tick - (S.lastFound || 0), full = S.towns.some(t => KINDS.filter(k => resOf(S, t)[k] >= capT(W, t) * .8).length >= 2), gap = v3 ? (full ? 18000 : 43200) : (full ? 36000 : 72000);
+  if (n < need || since < gap || S.towns.length >= (v3 ? 16 : 10)) return;
   const site = townSite(W); if (!site) { S.lastFound = S.tick - gap + 9000; S.wantLand = S.tick; return; } // nothing known is worth it yet: send explorers first
   const src = site.from, cand = S.people.filter(p => townOf(W, p).id === src.id && !p.carry && p.state !== "sleep" && p.role !== "build" && !p.watch && !p.trek);
   if (cand.length < 6) return;
   const mem = cand.slice(-3), used = new Set(S.towns.map(t => t.name)), names = TOWN_NAMES.filter(q => !used.has(q)), name = names[(rnd(W) * names.length) | 0] || "Newtown " + (S.towns.length + 1);
-  S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y, why: site.why, wid: site.wonder ? site.wonder.id : 0 };
+  S.exp = { members: mem.map(p => p.id), x: site.x, y: site.y, at: S.tick, name, from: src.name, fx: src.x, fy: src.y, why: site.why, gap: site.gap || TOWN_GAP, wid: site.wonder ? site.wonder.id : 0 };
   for (const [i, p] of mem.entries()) { p.obj = null; p.carry = null; p.pack = true; p.state = "pioneer"; p.pioneer = 1; p.tx = site.x + (i - 1) * .8; p.ty = site.y + (i % 2) * .6; p.act = "Pioneer: looking for new land"; p.sit = false; p.inside = false; }
   addLog(W, mem.map(p => p.name).join(", ").replace(/, ([^,]*)$/, " and $1") + " packed their things and set off to settle " + site.why + ".");
   W.events.push({ k: "milestone", title: "Pioneers", txt: "Three villagers set off to found a new settlement." });

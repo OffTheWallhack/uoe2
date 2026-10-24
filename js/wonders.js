@@ -136,6 +136,13 @@ export function wonderSprites(season) {
   cache[key] = out; return mergeArt(out);
 }
 function mergeArt(o) { const r = {}; for (const k in o) r[k] = art[k] || o[k]; return r; }
+// New worlds (gv >= 3) show the wonders twice as big: the same pixels, doubled, so they really look like wonders next to the houses.
+const bigCache = {};
+const dbl = o => { const c = document.createElement("canvas"); c.width = o.w * 2; c.height = o.h * 2; const x = c.getContext("2d"); x.imageSmoothingEnabled = false; x.drawImage(o.canvas, 0, 0, c.width, c.height); return { canvas: c, ax: o.ax * 2, ay: o.ay * 2, w: o.w * 2, h: o.h * 2 }; };
+export function wonderSpritesBig(season) {
+  const key = season === "winter" ? "w" : "n", base = wonderSprites(season), c = bigCache[key] || (bigCache[key] = {});
+  const r = {}; for (const k in base) { if (!c[k] || c[k].src !== base[k]) c[k] = { src: base[k], big: dbl(base[k]) }; r[k] = c[k].big; } return r;
+}
 // optional hand-made art: tries assets/wonders/<kind>.png ; returns when all tried
 export function loadWonderArt(done) {
   let n = Object.keys(DRAW).length;

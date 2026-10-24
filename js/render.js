@@ -5,7 +5,7 @@
 // ============================================================
 import * as M from "./sim.js";
 import { PAL, buildSprites, mix } from "./gfx.js";
-import { wonderSprites, boatSprites } from "./wonders.js";
+import { wonderSprites, wonderSpritesBig, boatSprites } from "./wonders.js";
 const { C, C4, WK } = M;
 export const sx = (x, y) => (x - y) * 8, sy = (x, y) => (x + y) * 4;
 const rgb = c => "rgb(" + (c[0] | 0) + "," + (c[1] | 0) + "," + (c[2] | 0) + ")";
@@ -64,7 +64,7 @@ function chunkMargin(ch) { if (ch.hm === undefined) { let m = 0; for (let j = 0;
 function samples(ch) {
   if (ch.g) return ch.g;
   const n = C4 * C4, lf = new Float32Array(n), fd = new Float32Array(n), lk = new Float32Array(n), rv = new Float32Array(n), bi = new Float32Array(n), fl = new Float32Array(n), ds = new Float32Array(n), sw = new Float32Array(n), tu = new Float32Array(n), gv = new Float32Array(n);
-  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); rv[k] = M.isWater(x, y) ? 9 : M.riverD(x, y) - .55; bi[k] = M.birchV(x, y); fl[k] = M.flowerV(x, y); ds[k] = M.desertV(x, y); sw[k] = M.swampV(x, y); tu[k] = M.tundraV(x, y); gv[k] = M.groveV(x, y); }
+  for (let j = 0; j < C4; j++) for (let i = 0; i < C4; i++) { const x = ch.x0 + (i + .5) / 4, y = ch.y0 + (j + .5) / 4, k = j * C4 + i; lf[k] = M.lfV(x, y); fd[k] = M.fdV(x, y); lk[k] = M.lakeV(x, y); rv[k] = M.isWater(x, y) ? 9 : M.riverD(x, y) - Math.max(.55, M.riverW(x, y) - .8); bi[k] = M.birchV(x, y); fl[k] = M.flowerV(x, y); ds[k] = M.desertV(x, y); sw[k] = M.swampV(x, y); tu[k] = M.tundraV(x, y); gv[k] = M.groveV(x, y); }
   return ch.g = { lf, fd, lk, rv, bi, fl, ds, sw, tu, gv };
 }
 let W = null, season = "summer", SP = null;
@@ -342,7 +342,7 @@ function buildOverview(ch, f) {
   for (const t of view.gfx >= 2 ? [] : ch.trees) { if (t.gone || M.hidden(W, t.x, t.y)) continue; const a = t.felled ? (t.sapling ? SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + 1] : t.cleared ? null : SP.stump) : treeSprite(t); if (a) ents.push([t.x + t.y, a, t.x, t.y, 0]); }
   for (const r of view.gfx >= 2 ? [] : ch.rocks) if (r.stone > 0 && !M.hidden(W, r.x, r.y)) ents.push([r.x + r.y, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, 0]);
   for (const b of W.S.b) { if (Math.floor((b.x + b.a / 2) / C) !== ch.cx || Math.floor((b.y + b.b / 2) / C) !== ch.cy) continue; const s = bSprite(b); if (!s) continue; ents.push([b.x + b.y + b.a / 2 + b.b / 2, s, b.x, b.y, 1, b]); }
-  { const WS = wonderSprites(season); for (const w of W.S.wonders || []) if (Math.floor(w.x / C) === ch.cx && Math.floor(w.y / C) === ch.cy && WS[w.k]) ents.push([w.x + w.y, WS[w.k], w.x, w.y, 0]); }
+  { const WS = wsp(); for (const w of W.S.wonders || []) if (Math.floor(w.x / C) === ch.cx && Math.floor(w.y / C) === ch.cy && WS[w.k]) ents.push([w.x + w.y, WS[w.k], w.x, w.y, 0]); }
   ents.sort((a, b) => a[0] - b[0]); c.imageSmoothingQuality = "low";
   for (const [, s, x, y, isB, b] of ents) {
     const px = (sx(x, y) - X0 - s.ax) / f, py = ((isB ? sy(x, y) - bH(b) : gyH(x, y)) - Y0 - s.ay) / f + m;
@@ -368,6 +368,8 @@ export function resize() {
 const STOPS = [[0, [56, 70, 128]], [5.2, [70, 84, 140]], [6.4, [255, 176, 140]], [8, [255, 238, 220]], [10, [255, 255, 255]], [15, [255, 252, 240]], [17.2, [255, 222, 170]], [18.4, [255, 160, 120]], [19.6, [100, 96, 150]], [21, [58, 72, 128]], [24, [56, 70, 128]]];
 function tint(h) { for (let i = 0; i < STOPS.length - 1; i++) { const a = STOPS[i], b = STOPS[i + 1]; if (h >= a[0] && h <= b[0]) { const t = (h - a[0]) / (b[0] - a[0]); return [0, 1, 2].map(q => a[1][q] + (b[1][q] - a[1][q]) * t); } } return [255, 255, 255]; }
 export const wonderArt = k => (wonderSprites(season) || {})[k];
+// the wonders on the map: twice as big in new worlds (gv >= 3); the Album keeps using the normal art
+const wsp = () => ((W && W.S && W.S.gv) || 0) >= 3 ? wonderSpritesBig(season) : wonderSprites(season);
 export function nightOf(h) { const t = tint(h); return M.clamp((1 - (t[0] + t[1] + t[2]) / 765) / .45, 0, 1); }
 const rain = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random(), s: .7 + Math.random() * .6 }));
 function px(c, x, y, w, h, col, a) { c.fillStyle = col; if (a !== undefined) c.globalAlpha = a; c.fillRect(x, y, w, h); if (a !== undefined) c.globalAlpha = 1; }
@@ -509,7 +511,7 @@ function drawEntities(vis, hour, VWa, VHa) {
     const prop = { wcut: [SP.wood[1], 2.5, .7], forage: [SP.food[1], 2.4, 1.2], fisher: [SP.bld.rack, 2.6, .9], quarry: [SP.stone[2], 2.5, .9], store: [SP.wood[tier(R0.wood)], 3.4, 1.4] }[b.type];
     if (prop && b.done) spr(ents, prop[0], b.x + prop[1], b.y + prop[2], b.x + prop[1] + b.y + prop[2], info, VWa, VHa, bH(b));
   }
-  { const WS = wonderSprites(season);
+  { const WS = wsp();
     for (const w of S.wonders) { const s = WS[w.k], d = M.WONDERS[w.k]; if (!s) continue; spr(ents, s, w.x, w.y, w.x + w.y, { t: d.name, d: d.d + " Found by " + w.by + "." }, VWa, VHa); }
     for (const t of S.treasures || []) { const d = M.TREASURES[t.k], s = d && d.place && WS["p_" + t.k]; if (s) spr(ents, s, t.x, t.y, t.x + t.y, { t: d.name, d: d.d + " Found by " + t.by + "." }, VWa, VHa); }
     const T = S.trek; if (T) { const lead = S.people.find(q => q.id === T.members[0]);
@@ -718,6 +720,7 @@ let mmBase = null, mmSig = "", mmWin = null;
 function mmColor(x, y) {
   const P = PAL[season], e = M.elev(x, y);
   if (e < M.SEA) return P.water[e < M.SEA - .03 ? 0 : 1];
+  if (M.isRiver(x, y)) return P.water[1];
   const h = M.heightAt(x, y), lk = M.lakeV(x, y);
   if (lk > .6 && h < 2.6) return P.snow ? P.g[2] : [214, 196, 146];
   if (M.desertV(x, y) > 0) return P.snow ? P.g[2] : [228, 196, 124];
@@ -765,8 +768,35 @@ export function minimap(cv2, focusX, focusY) {
 }
 // ---------- the big world map ----------
 let wmBase = null, wmSig = "", wmAt = 0; export let wmWin = null;
+// ---- preview of the whole world: the land is made from the seed, so the map can be drawn before anybody has walked there ----
+export let wmPreview = false; export function setWmPreview(v) { wmPreview = !!v; }
+let pvBase = null, pvSig = "", pvWon = [];
+function previewMap(cv2) {
+  const S = W.S, L = 1200, st = 3, ox = -L / 2, oy = -L / 2, sig = [S.seed, S.re || 0, S.gv || 0, season].join();
+  if (!pvBase || pvSig !== sig) {
+    pvSig = sig; pvBase = document.createElement("canvas"); pvBase.width = L * 2; pvBase.height = L;
+    const b = pvBase.getContext("2d"), img = b.createImageData(L * 2, L), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { d[i] = 14; d[i + 1] = 22; d[i + 2] = 32; d[i + 3] = 255; }
+    for (let ry = 0; ry < L; ry += st) for (let rx = 0; rx < L; rx += st) {
+      const x = ox + rx + st / 2, y = oy + ry + st / 2, col = mmColor(x, y), u = rx - ry + L - 1, v = (rx + ry) >> 1; if (v >= L) continue;
+      for (let dv = 0; dv < st && v + dv < L; dv++) for (let du = 0; du < 2 * st; du++) { const uu = u + du - (st - 1); if (uu < 0 || uu >= L * 2) continue; const o = ((v + dv) * L * 2 + uu) * 4; d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; }
+    }
+    b.putImageData(img, 0, 0); pvWon = M.wondersInRect(W, ox, oy, ox + L, oy + L);
+  }
+  cv2.width = L * 2; cv2.height = L; const c = cv2.getContext("2d"); c.imageSmoothingEnabled = false; c.drawImage(pvBase, 0, 0);
+  const P = (x, y) => [(x - ox) - (y - oy) + L, ((x - ox) + (y - oy)) / 2];
+  const fz = Math.max(1, cv2.width / Math.max(300, cv2.clientWidth || cv2.width)); c.textAlign = "center"; c.lineJoin = "round";
+  const label = (t, x, y, col, size) => { c.font = "700 " + Math.round(size * fz * .85) + "px 'Trebuchet MS',sans-serif"; c.lineWidth = 3 * fz; c.strokeStyle = "rgba(10,14,20,.9)"; c.strokeText(t, x, y); c.fillStyle = col; c.fillText(t, x, y); };
+  const star = (x, y, r, fill) => { c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, q = i % 2 ? r * .45 : r; c.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); } c.closePath(); if (fill) { c.fillStyle = "#ffd24a"; c.fill(); } c.lineWidth = 1.5 * fz; c.strokeStyle = fill ? "#3a2a10" : "#ffffff"; c.stroke(); };
+  const found = new Set((S.wonders || []).map(w => w.id));
+  for (const w of pvWon) { const [x, y] = P(w.x, w.y); star(x, y, 5 * fz, found.has(w.id)); }
+  for (const w of S.wonders || []) { const [x, y] = P(w.x, w.y); label(M.WONDERS[w.k].name, x, y - 8 * fz, "#fff0b0", 9); }
+  { const [x, y] = P(0, 0); c.beginPath(); c.arc(x, y, 4 * fz, 0, 6.3); c.fillStyle = "#ff5a44"; c.fill(); c.lineWidth = 1.5 * fz; c.strokeStyle = "#2a0a08"; c.stroke(); label("Start", x, y - 8 * fz, "#ffb0a0", 10); }
+  for (const t of S.towns || []) { const [x, y] = P(t.x, t.y); c.beginPath(); c.arc(x, y, 3.5 * fz, 0, 6.3); c.fillStyle = "#f0c860"; c.fill(); c.lineWidth = 1.5 * fz; c.strokeStyle = "#2a1a0a"; c.stroke(); label(t.name, x, y - 7 * fz, "#ffffff", 10); }
+  wmWin = { L, ox, oy, sc: 1 }; return true;
+}
 export function worldMap(cv2, force) {
-  if (!W) return false; const S = W.S;
+  if (!W) return false; if (wmPreview) return previewMap(cv2); const S = W.S;
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, revealed = 0;
   for (const ch of W.chunks.values()) for (let j = 0; j < C; j += 2) for (let i = 0; i < C; i += 2) if (!ch.fog[j * C + i]) { revealed++; const x = ch.x0 + i, y = ch.y0 + j; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
   if (x0 > x1) return false;

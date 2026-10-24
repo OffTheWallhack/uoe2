@@ -133,10 +133,12 @@ function fillGrid() {
 function drawWMap(force) {
   if (!W || $("wmapsheet").hidden) return; const S = W.S, c = $("wmapc"); if (!G.worldMap(c, force)) return;
   const kinds = new Set((S.wonders || []).map(w => w.k)).size, total = M.WONDER_KINDS.length;
+  if (G.wmPreview) { $("wmapinfo").textContent = "Preview of the whole world made from this world's seed (1200 × 1200 steps around the start). Filled star: a wonder your people found · hollow star: a wonder still hidden · gold dot: settlement · red dot: the start. Tap the map to go there."; return; }
   $("wmapinfo").textContent = "★ wonders " + (S.wonders || []).length + " (" + kinds + "/" + total + " kinds) · gold dot: settlements · blue square: harbour · white arrow: boat · red dot: expedition. Tap the map to go there.";
 }
 $("wmapc").addEventListener("click", e => { const r = e.currentTarget.getBoundingClientRect(), c = e.currentTarget, p = G.wmToWorld((e.clientX - r.left) / r.width * c.width, (e.clientY - r.top) / r.height * c.height); if (p) { centerOn(p.x, p.y); $("wmapsheet").hidden = true; if (view.zoom < 1) setZoom(1.5); } });
 setInterval(() => drawWMap(false), 2500);
+$("wmprev").addEventListener("click", () => { const on = !G.wmPreview; G.setWmPreview(on); $("wmprev").textContent = on ? "Show only the explored land" : "Preview the whole world"; drawWMap(true); });
 // ---- selection info (left well) ----
 let selInfo = null;
 function fillSel() {
