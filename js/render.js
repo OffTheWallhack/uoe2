@@ -147,7 +147,7 @@ function pix(ch, gx, gy, P, x, y, face, z) {
     else if (bv > .45 && ht < 15 && season === "spring" && h2 > .985) c = [246, 246, 236];
   }
   if (sl < -4.2 && !P.snow) c = mix(c, h < .6 ? mix(P.g[0], [20, 30, 16], .3) : ROCK[0], M.clamp((-sl - 4.2) / 4, 0, .7));
-  if (sl < -1 && ((ht + .6) % 6) > 5.2 && h2 < .7) c = mix(c, [0, 0, 0], .18);
+  // (height contour lines removed: on wide gentle slopes they ran as long random dotted "roads" across the whole map)
   if (ht > 27 && !P.snow) { const r = (ht - 27) / 12 + (h - .5) * .5 + (lf - .5); if (r > .7) c = ROCK[(h2 * 3) | 0]; else if (r > .35 && h2 < .3) c = mix(c, ROCK[1], .55); }
   if (ht > 38 + (h - .5) * 4) c = h2 < .15 || sl < -2 ? [206, 216, 228] : [238, 243, 250];
   if (h2 > .9965 && !P.snow && fd < .55 && w < .1 && ht < 22) c = P.flo[(h * 4 * 977 | 0) % P.flo.length];
@@ -185,8 +185,8 @@ function bakeSome(ch, until) {
       for (let px = 0; px < CW; px++) {
         const o = px * L + py; let m = MT; while (m > 0 && m > j.col[o + m]) m--;
         const a = (X0 + px + .5) / 8, b = (Y0 + py + .5) / 4;
-        const r = rayFinish((a + b) / 2, (b - a) / 2, m / 8, tmax); if (Math.floor(r.x / C) !== ch.cx || Math.floor(r.y / C) !== ch.cy) continue;
-        const q = py * CW + px; j.hf[q] = r.face; j.hz[q] = Math.min(255, Math.round(r.z)); j.hp[q] = (Math.min(255, Math.floor((r.y - ch.y0) * 8)) << 8) | Math.min(255, Math.floor((r.x - ch.x0) * 8));
+        const r = rayFinish((a + b) / 2, (b - a) / 2, m / 8, tmax); if (Math.floor((r.x + .2) / C) !== ch.cx && Math.floor(r.x / C) !== ch.cx || Math.floor((r.y + .2) / C) !== ch.cy && Math.floor(r.y / C) !== ch.cy) continue; // neighbours claim a thin overlap so no seam pixel is left unpainted
+        const q = py * CW + px; j.hf[q] = r.face; j.hz[q] = Math.min(255, Math.round(r.z)); j.hp[q] = (Math.max(0, Math.min(255, Math.floor((r.y - ch.y0) * 8))) << 8) | Math.max(0, Math.min(255, Math.floor((r.x - ch.x0) * 8)));
       }
       if ((py & 3) === 3 && performance.now() > until) return false;
     }
@@ -334,7 +334,7 @@ function buildOverview(ch, f) {
   ch[key + "G"] = ch.ovG || 0; ch[key + "At"] = performance.now();
 }
 // ---------- sprites for things ----------
-function treeSprite(t) { if (t.t === "fspruce") { const WS = buildSprites("winter"); return WS.spruce[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; } if (t.t === "willow") return SP.willow[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; if (t.t === "maple") return SP.maple[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; if (t.t === "larch") return SP.larch[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; if (t.t === "dwarf") return SP.dwarf[Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; const g = Math.floor(t.v * 3) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.floor(t.v * 3) * 3 : g]; }
+function treeSprite(t) { if (t.t === "fspruce") { const WS = buildSprites("winter"); return WS.spruce[Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; } if (t.t === "willow") return SP.willow[Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; if (t.t === "maple") return SP.maple[Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; if (t.t === "larch") return SP.larch[Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2)]; if (t.t === "dwarf") return SP.dwarf[Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.15 ? 1 : 2)]; const g = Math.min(2, Math.floor(t.v * 3)) * 3 + (t.s < .95 ? 0 : t.s < 1.2 ? 1 : 2); if (t.t === "oak") return SP.oak[g]; if (t.t === "birch") return SP.birch[g & 1]; return SP.spruce[t.t === "spruceS" ? Math.min(2, Math.floor(t.v * 3)) * 3 : g]; }
 const bH = b => hR(b.x + b.a / 2, b.y + b.b / 2);
 function bSprite(b) { const B = SP.bld; if (b.type === "apiary") return B.skeps; if (b.type === "fold") return B.shed; if (B[b.type]) return B[b.type]; if (b.type === "camp" || b.type === "outpost") return B.tent; if (b.type === "well") return B.well; if (b.type === "bench") return B.bench; if (b.type === "torch") return B.torch; return null; }
 // ---------- frame ----------
@@ -441,12 +441,13 @@ function drawEntities(vis, hour, VWa, VHa) {
       const x0 = sx(t.x, t.y) - vx0, y0 = gyH(t.x, t.y) - vy0; if (x0 < -24 || x0 > VWa + 24 || y0 < -8 || y0 > VHa + 50) continue; if (M.hidden(W, t.x, t.y)) continue;
       if (t.gone) continue;
       if (t.felled) {
-        if (t.sapling) { const g = M.clamp(1 - (t.regrow || 0) / 1200, 0, .999), s2 = SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + (g > .5 ? 1 : 0)]; spr(ents, s2, t.x, t.y, t.x + t.y, { t: "Young tree", d: "Planted by the forester. Growing." }, VWa, VHa); continue; }
-        if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: t.cleared ? "Cleared." : "Rots away in time. Only a forester plants new trees." }, VWa, VHa); continue; }
+        if (t.sapling) { const g = M.clamp(1 - (t.regrow || 0) / 1200, 0, .999), s2 = SP.bld.sapling[(t.t === "oak" || t.t === "birch" ? 2 : 0) + (g > .5 ? 1 : 0)]; spr(ents, s2, t.x, t.y, t.x + t.y, { t: "Young tree", d: "A young tree. Growing." }, VWa, VHa); continue; }
+        if (!t.cleared || !M.occAt(W, t.x, t.y)) spr(ents, SP.stump, t.x, t.y, t.x + t.y, t.cleared ? null : { t: "Stump", d: t.cleared ? "Cleared." : "Sprouts again in time, or rots away." }, VWa, VHa); continue; }
       const a = treeSprite(t), x = x0 - a.ax, y = y0 - a.ay, near = hv && Math.abs(hv.vx - x0) < 12 && hv.vy > y && hv.vy < y0 + 2;
       ents.push({ depth: t.x + t.y, draw: () => ctx.drawImage(a.canvas, x, y), box: near ? [x0 - 6, y, x0 + 6, y0 + 2, { t: { oak: "Oak", birch: "Birch", dwarf: "Dwarf pine", willow: "Bog willow", maple: "Maple", larch: "Golden larch", fspruce: "Frost spruce" }[t.t] || "Spruce", d: t.t === "dwarf" ? "Kosodrevina. Low, tough, smells of resin." : t.logs + " loads of wood left." }] : null });
     }
     for (const b of ch.bushes) { if (b.gone || M.hidden(W, b.x, b.y)) continue; if (b.mush) { const has = b.berries > 0 && !P.snow; spr(ents, (has ? SP.mush : SP.mushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Mushrooms", d: has ? "Boletes and chanterelles. Mind the red one." : "Picked clean. More will grow." }, VWa, VHa); continue; } if (b.bog) { const has = b.berries > 0 && !P.snow; spr(ents, (has ? SP.reed : SP.reedBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Bog reeds", d: has ? "Cranberries hide among the reeds." : "No berries right now." }, VWa, VHa); continue; } const has = b.berries > 0 && P.berry; spr(ents, (has ? SP.bush : SP.bushBare)[Math.floor(b.v * 3) % 3], b.x, b.y, b.x + b.y, { t: "Berry bush", d: has ? "Ripe berries to pick." : "No berries right now." }, VWa, VHa); }
+    for (const sh of ch.shore) { if (M.hidden(W, sh.x, sh.y) || M.ih(Math.floor(sh.x * 7) + 3, Math.floor(sh.y * 5) + 1) > .5 || M.occAt(W, sh.x, sh.y) || M.isRoad(sh.x, sh.y)) continue; const rx = sh.x + (M.ih(Math.floor(sh.x * 3), Math.floor(sh.y * 11)) - .5) * .5, ry = sh.y + (M.ih(Math.floor(sh.x * 13), Math.floor(sh.y * 3)) - .5) * .5; if (M.isWater(rx, ry) || M.lakeV(rx, ry) > .66) continue; spr(ents, SP.reedBare[Math.floor(M.ih(Math.floor(sh.x * 5), Math.floor(sh.y * 7)) * 3) % 3], rx, ry, rx + ry, { t: "Reeds", d: "Reeds and cattails along the water." }, VWa, VHa); }
     for (const r of ch.rocks) { if (r.stone <= 0 || M.hidden(W, r.x, r.y)) continue; spr(ents, (r.big ? SP.bigRock : SP.rock)[Math.floor(r.v * 3) % 3], r.x, r.y, r.x + r.y, { t: r.big ? "Stone outcrop" : "Rock", d: r.stone + " loads of stone left." }, VWa, VHa); }
   }
   let R0 = S.res; const tier = v => v >= 300 ? 2 : v >= 60 ? 1 : 0;
@@ -715,7 +716,11 @@ export function minimap(cv2, focusX, focusY) {
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const ch of W.chunks.values()) for (let j = 0; j < C; j += 2) for (let i = 0; i < C; i += 2) if (!ch.fog[j * C + i]) { const x = ch.x0 + i, y = ch.y0 + j; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
   if (x0 > x1) return;
-  const L = Math.max(48, x1 - x0 + 6, y1 - y0 + 6), ox = Math.floor((x0 + x1) / 2 - L / 2), oy = Math.floor((y0 + y1) / 2 - L / 2);
+  // when the explored land is huge (villages are hundreds of steps apart) the little map follows the camera instead of showing everything
+  const MAXL = 170, ext = Math.max(x1 - x0 + 6, y1 - y0 + 6), L = Math.max(48, Math.min(ext, MAXL));
+  let cx0 = (x0 + x1) / 2, cy0 = (y0 + y1) / 2;
+  if (ext > MAXL) { const ga = (vx0 + Vw / k / 2) / 8, gb = (vy0 + Vh / k / 2) / 4; cx0 = Math.round(((ga + gb) / 2) / 8) * 8; cy0 = Math.round(((gb - ga) / 2) / 8) * 8; }
+  const ox = Math.floor(cx0 - L / 2), oy = Math.floor(cy0 - L / 2);
   if (cv2.width !== L * 2 || cv2.height !== L) { cv2.width = L * 2; cv2.height = L; mmSig = ""; }
   const c = cv2.getContext("2d");
   let revealed = 0; for (const ch of W.chunks.values()) for (let i = 0; i < ch.fog.length; i += 7) if (!ch.fog[i]) revealed++;
@@ -746,7 +751,7 @@ export function worldMap(cv2, force) {
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, revealed = 0;
   for (const ch of W.chunks.values()) for (let j = 0; j < C; j += 2) for (let i = 0; i < C; i += 2) if (!ch.fog[j * C + i]) { revealed++; const x = ch.x0 + i, y = ch.y0 + j; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
   if (x0 > x1) return false;
-  const L = Math.max(64, x1 - x0 + 10, y1 - y0 + 10) | 0, ox = Math.floor((x0 + x1) / 2 - L / 2), oy = Math.floor((y0 + y1) / 2 - L / 2), sc = L <= 160 ? 3 : L <= 300 ? 2 : 1, st = L > 260 ? 2 : 1;
+  const L = Math.max(64, x1 - x0 + 10, y1 - y0 + 10) | 0, ox = Math.floor((x0 + x1) / 2 - L / 2), oy = Math.floor((y0 + y1) / 2 - L / 2), sc = L <= 160 ? 3 : L <= 300 ? 2 : 1, st = L > 800 ? 4 : L > 520 ? 3 : L > 260 ? 2 : 1;
   const sig = [L, ox, oy, revealed, season].join();
   if (!wmBase || force || (sig !== wmSig && performance.now() - wmAt > 3000)) {
     wmSig = sig; wmAt = performance.now(); wmBase = document.createElement("canvas"); wmBase.width = L * 2; wmBase.height = L;

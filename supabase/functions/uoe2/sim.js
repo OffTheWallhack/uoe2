@@ -68,7 +68,19 @@ export function groveV(x, y) {
   if (x * x + y * y < 6400) return -1; const n = vn(x + 5300, y + 1900, 26) - .5; if (n <= -.02) return -1;
   if (desertV(x, y) > 0 || swampV(x, y) > 0 || tundraV(x, y) > 0) return -1; const e = baseElev(x, y); return e < SEA + .03 || e > SEA + .45 ? -1 : n + .1;
 }
+// World version 2 (new worlds): a wide land with seas, lakes, highlands and plains in all directions, so that villages can lie
+// hundreds of steps apart. Worlds saved before that (gv missing) keep the old coast-and-mountains terrain.
+let GVN = 0;
 function baseElev(x, y) {
+  if (GVN >= 2) {
+    const d = x * DX + y * DY;
+    let e = vn(x + 3000, y - 1000, 48) * .30 + vn(x, y, 14) * .17 + vn(x + 77, y + 33, 5) * .09 + vn(x - 2500, y + 6100, 150) * .22 + vn(x + 9000, y - 4000, 430) * .22;
+    e = .535 + (e - .5) * 1.4;                                   // wider spread: real seas and real mountains
+    e += -clamp((d - 70) * .0035, 0, .32);                      // a sea in front of the valley, far away
+    const rg = 1 - Math.abs(vn(x - 7700, y + 1300, 210) * 2 - 1); e += Math.pow(rg, 3) * .36 * clamp((vn(x + 400, y - 5200, 380) - .3) * 3, 0, 1); // mountain ranges
+    const w = clamp(1 - Math.hypot(x, y) / 20, 0, 1), ws = w * w * (3 - 2 * w);
+    return e * (1 - ws) + (SEA + .052) * ws;
+  }
   let e = vn(x + 3000, y - 1000, 48) * .5 + vn(x, y, 14) * .3 + vn(x + 77, y + 33, 5) * .2;
   const d = x * DX + y * DY;
   e += -Math.max(0, d - 20) * .013 + Math.max(0, -d - 18) * .01;
@@ -82,6 +94,8 @@ export const DEMO = true;
 const ax = (x, y) => [x * DX + y * DY, -x * DY + y * DX]; // u: towards the sea, v: across
 export const fromAx = (u, v) => ({ x: u * DX - v * DY, y: u * DY + v * DX });
 const anchor = (x, y, u0, v0, r) => { const [u, v] = ax(x, y); return Math.max(0, 1 - Math.hypot(u - u0, v - v0) / r); };
+// open glades in the woods (new worlds only, so that old saves keep their trees)
+export const gladeV = (x, y) => Math.max(0, vn(x - 5200, y + 2300, 22) - .7) * 3;
 // birch grove
 export const birchV = (x, y) => Math.max(vn(x + 9100, y + 300, 22) - .2, DEMO ? anchor(x, y, 4, -17, 11) * 1.1 : 0);
 // flower meadow
@@ -143,7 +157,7 @@ const TRAITS = ["early riser", "storyteller", "stubborn", "dreamer", "hard worke
 // W = { S: serializable state, chunks: Map, occ: Map, ... }
 export function createWorld(seed, t0) {
   const S = {
-    v: 1, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
+    v: 1, gv: 2, seed, tick: 0, t0, tz: "Europe/Bratislava", rng: (seed ^ 0x9e3779b9) >>> 0, rev: 0,
     phase: "choose", res: { food: 20, wood: 10, stone: 0 }, ms: {}, log: [], people: [], b: [], nextId: 1,
     wagon: null, ox: null, rally: null, hungry: false, eatT: 0, planT: 40, roleT: 0, arriveT: 120, weather: { kind: "clear", temp: null, at: 0 },
     chunks: {}, over: {}, road: [], road2: [], wade: {}, sheep: [], towns: [], exp: null, wonders: [], trek: null, rumor: null, trekT: 0, boats: [], boatT: 0, treasures: [], scrollDone: false, price: { food: 1, wood: 1, stone: 1 }, trade: { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }, pact: {}, marketT: 60, tradeT: 120,
@@ -175,7 +189,7 @@ function newPerson(W, x, y) {
 // The wagon always starts at the middle of the map, so a new world slides the terrain until the start is solid, dry, flat ground
 // where the settlers can actually settle (about 1 seed in 14 used to start on a beach). Old saves keep their terrain (S.re is missing).
 function startSpots(seed, re) {
-  SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
+  GVN = 2; SX = ((mkRng(seed)() * 20000) | 0) + re * 7919; SY = ((mkRng(seed + 1)() * 20000) | 0) + re * 6577;
   const sa = mkRng(seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa); OVER = new Map(); ISLC = new Map();
   let n = 0;
   for (let y = -12; y <= 12; y += 2) for (let x = -12; x <= 12; x += 2) {
@@ -187,14 +201,14 @@ function startSpots(seed, re) {
 }
 function pickStart(seed) { let best = 0, bn = -1; for (let re = 0; re < 40; re++) { const n = startSpots(seed, re); if (n >= 25) return re; if (n > bn) { bn = n; best = re; } } return best; }
 export function wrap(S) {
-  SX = ((mkRng(S.seed)() * 20000) | 0) + (S.re || 0) * 7919; SY = ((mkRng(S.seed + 1)() * 20000) | 0) + (S.re || 0) * 6577;
+  GVN = S.gv || 0; SX = ((mkRng(S.seed)() * 20000) | 0) + (S.re || 0) * 7919; SY = ((mkRng(S.seed + 1)() * 20000) | 0) + (S.re || 0) * 6577;
   const sa = mkRng(S.seed + 11)() * Math.PI * 2; DX = Math.cos(sa); DY = Math.sin(sa);
-  const W = { S, chunks: new Map(), occ: new Map(), events: [], trail: [], dirtyGround: [], dirtyFog: [], newChunks: [] };
+  const W = { S, chunks: new Map(), occ: new Map(), events: [], trail: [], dirtyGround: [], dirtyFog: [], newChunks: [], rt: new Map(), unr: new Map() };
   // trail from the entry point to the start clearing
   const R = mkRng(S.seed + 3), ex = S.entry ? S.entry.x : 0, ey = S.entry ? S.entry.y : 0;
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy and the changed land
-  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.price = S.price || { food: 1, wood: 1, stone: 1 }; S.trade = S.trade || { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }; S.pact = S.pact || {}; S.marketT = S.marketT || 60; S.tradeT = S.tradeT || 120; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
+  W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.gvn = GVN; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.price = S.price || { food: 1, wood: 1, stone: 1 }; S.trade = S.trade || { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }; S.pact = S.pact || {}; S.marketT = S.marketT || 60; S.tradeT = S.tradeT || 120; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
   for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2);
   // settlements (older saves had only the first village)
   if (!S.towns) { S.towns = []; const cm = S.b.find(b => b.type === "camp"); if (cm) S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: 0 }); }
@@ -212,7 +226,7 @@ export function getChunk(W, cx, cy, create) {
   return ch;
 }
 function genChunk(W, cx, cy) {
-  const S = W.S, ch = { cx, cy, k: ckey(cx, cy), x0: cx * C, y0: cy * C, trees: [], rocks: [], bushes: [], shore: [], wear: new Uint16Array(C4 * C4), fog: new Uint8Array(C * C).fill(1) };
+  const S = W.S, GV = S.gv || 0, ch = { cx, cy, k: ckey(cx, cy), x0: cx * C, y0: cy * C, trees: [], rocks: [], bushes: [], shore: [], wear: new Uint16Array(C4 * C4), fog: new Uint8Array(C * C).fill(1) };
   const trail = W.trail.filter(p => p.x > ch.x0 - 2 && p.x < ch.x0 + C + 2 && p.y > ch.y0 - 2 && p.y < ch.y0 + C + 2);
   const wl = []; for (let ry = Math.floor((ch.y0 - 8) / RG); ry <= Math.floor((ch.y0 + C + 8) / RG); ry++) for (let rx = Math.floor((ch.x0 - 8) / RG); rx <= Math.floor((ch.x0 + C + 8) / RG); rx++) { const w = wonderIn(W, rx, ry); if (w) wl.push({ x: w.x, y: w.y, cr: WONDERS[w.k].cr || 4 }); }
   const nearTrail = (x, y, r) => trail.some(p => Math.abs(p.x - x) < r && Math.abs(p.y - y) < r && Math.hypot(p.x - x, p.y - y) < r);
@@ -256,6 +270,11 @@ function genChunk(W, cx, cy) {
       else if (r > .955) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0, mush: true });
       continue;
     }
+    if (GV >= 2 && gladeV(jx, jy) > 0 && hz < 26) { // an open glade in the woods: room for people and houses (berries at the edge, a lone old oak)
+      if (r > .93 && gladeV(jx, jy) < .5) ch.bushes.push({ x: jx, y: jy, v, berries: 3, regrow: 0 });
+      else if (r < .004) ch.trees.push({ x: jx, y: jy, t: "oak", s: 1.15, v, logs: 3, felled: false, regrow: 0, cleared: false });
+      continue;
+    }
     if (flowerV(jx, jy) > .45 && hz < 15) { if (r < .006) ch.trees.push({ x: jx, y: jy, t: "oak", s: 1.1, v, logs: 3, felled: false, regrow: 0, cleared: false }); continue; }
     if (fd > .62 && r < .55) ch.trees.push({ x: jx, y: jy, t: r < .34 ? "spruce" : "spruceS", s: .8 + ih(Math.floor(x), Math.floor(y)) * .6, v, logs: 3, felled: false, regrow: 0, cleared: false });
     else if (fd > .52 && r < .1 && hz < 26) ch.trees.push({ x: jx, y: jy, t: "oak", s: .9 + ih(Math.floor(x), Math.floor(y)) * .4, v, logs: 3, felled: false, regrow: 0, cleared: false });
@@ -288,7 +307,7 @@ export function wearAt(W, x, y) { const ch = chunkAt(W, x, y, false); if (!ch) r
 export function addWear(W, x, y, amt) {
   const gx = x * 4, gy = y * 4; let formed = false;
   for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
-    const sx = Math.floor(gx) + i, sy = Math.floor(gy) + j, d = Math.hypot(sx + .5 - gx, sy + .5 - gy) / 4, v = 1 - d / .55; if (v <= 0) continue;
+    const sx = Math.floor(gx) + i, sy = Math.floor(gy) + j, d = Math.hypot(sx + .5 - gx, sy + .5 - gy) / 4, v = 1 - d / .4; if (v <= 0) continue;
     const ch = getChunk(W, Math.floor(sx / C4), Math.floor(sy / C4), true), li = sx - ch.cx * C4, lj = sy - ch.cy * C4, k = lj * C4 + li;
     const o = ch.wear[k] / WK, n = Math.min(1.4, o + amt * v); ch.wear[k] = Math.round(n * WK); ch.worn = true;
     if (Math.floor(o * 14) !== Math.floor(n * 14)) W.dirtyGround.push(ch, k);
@@ -314,6 +333,7 @@ export function reveal(W, cx, cy, r) {
 }
 // ---------- occupancy ----------
 const tkey = (x, y) => x + ":" + y;
+const QUART = [[.2, .2], [.8, .2], [.2, .8], [.8, .8]];
 function occupy(W, b, on) { for (let y = Math.floor(b.y); y < Math.ceil(b.y + b.b); y++) for (let x = Math.floor(b.x); x < Math.ceil(b.x + b.a); x++) { if (on) W.occ.set(tkey(x, y), b); else W.occ.delete(tkey(x, y)); } }
 export const occAt = (W, x, y) => W.occ.get(tkey(Math.floor(x), Math.floor(y)));
 export function canPlace(W, type, x, y, mayor) {
@@ -325,10 +345,13 @@ export function canPlace(W, type, x, y, mayor) {
   for (let j = y; j < y + T.b; j++) for (let i = x; i < x + T.a; i++) {
     if (hidden(W, i + .5, j + .5)) return "That land is still unexplored.";
     if (isWater(i + .5, j + .5) || lakeV(i + .5, j + .5) > .66) return "Too wet to build here.";
+    if (!T.deco && !T.water && !T.sea) for (const [ox, oy] of QUART) if (isWater(i + ox, j + oy) || lakeV(i + ox, j + oy) > .64) return "Too wet to build here.";
     if (steep(i, j, i + 1, j) || steep(i, j, i, j + 1) || steep(i, j, i + 1, j + 1)) return "Too steep to build here.";
     if (riverD(i + .5, j + .5) < riverW(i + .5, j + .5) + .6) return "That is the stream.";
     const ch = chunkAt(W, i, j, false); if (ch && ch.rocks.some(r => r.stone > 0 && r.x >= i && r.x < i + 1 && r.y >= j && r.y < j + 1)) return "Rocks are in the way.";
   }
+  // a house never stands on a thin strip of land: the ring around it must be dry too (the fisher and the harbour live on the shore)
+  if (!T.deco && !T.water && !T.sea) { let wetRing = 0, ring = 0; for (let j = y - 1; j <= y + T.b; j++) for (let i = x - 1; i <= x + T.a; i++) { if (i >= x && i < x + T.a && j >= y && j < y + T.b) continue; ring++; if (isWater(i + .5, j + .5)) wetRing++; } if (wetRing > ring * .34) return "Too close to the water."; }
   if (T.rocks) { let ok = heightAt(x + 1, y + 1) > 18; for (let cy = Math.floor((y - 5) / C); cy <= Math.floor((y + 7) / C) && !ok; cy++) for (let cx = Math.floor((x - 5) / C); cx <= Math.floor((x + 7) / C) && !ok; cx++) { const ch = getChunk(W, cx, cy, false); if (ch && ch.rocks.some(r => r.stone > 0 && Math.abs(r.x - x - 1) < 6 && Math.abs(r.y - y - 1) < 6)) ok = true; } if (!ok) return "A quarry needs rock: next to stones or up in the mountains."; }
   if (T.sea) {
     const hd = harborDir(x, y, T.a, T.b), msg = "A harbour needs open sea in front of it. A pond or a narrow stream is too small.";
@@ -435,11 +458,15 @@ function homeFor(W) {
 }
 const an = n => (/^[AEIOU]/.test(n) ? "an " : "a ") + n;
 // stumps near houses are dug out sooner
-function plantable(W, x, y) {
-  if (wet(x, y) || isRoad(x, y) || wearAt(W, x, y) > .3 || hidden(W, x, y) || heightAt(x, y) > 30) return false;
+function plantable(W, x, y, self) {
+  if (!openGround(W, x, y)) return false;
+  const ch = chunkAt(W, x, y, true); for (const q of ch.trees) if (q !== self && !q.gone && (!q.felled || q.sapling) && Math.abs(q.x - x) < 1.1 && Math.abs(q.y - y) < 1.1) return false;
+  return true;
+}
+function openGround(W, x, y) {
+  if (wet(x, y) || lakeV(x, y) > .6 || lakeV(x + .6, y) > .62 || lakeV(x - .6, y) > .62 || lakeV(x, y + .6) > .62 || lakeV(x, y - .6) > .62 || isRoad(x, y) || wearAt(W, x, y) > .3 || hidden(W, x, y) || heightAt(x, y) > 42) return false;
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) if (occAt(W, x + i * 1.2, y + j * 1.2)) return false;
   if (steep(x - .5, y, x + .5, y) || steep(x, y - .5, x, y + .5)) return false;
-  const ch = chunkAt(W, x, y, true); for (const q of ch.trees) if (!q.gone && Math.abs(q.x - x) < 1.1 && Math.abs(q.y - y) < 1.1) return false;
   return true;
 }
 function nearVillage(W, x, y) { for (const b of W.S.b) if (Math.abs(b.x + b.a / 2 - x) < b.a / 2 + 5 && Math.abs(b.y + b.b / 2 - y) < b.b / 2 + 5) return true; return false; }
@@ -471,7 +498,7 @@ function forEachNear(W, x, y, r, list, fn) {
 }
 function pickNear(W, x, y, r, list, ok, k) {
   const c = [];
-  forEachNear(W, x, y, r, list, (o, ch) => { if (!ok(o) || hidden(W, o.x, o.y)) return; const d = Math.hypot(o.x - x, o.y - y); if (d <= r) c.push([d, o, ch]); });
+  forEachNear(W, x, y, r, list, (o, ch) => { if (!ok(o) || hidden(W, o.x, o.y)) return; if (W.unr.size) { const u = W.unr.get(Math.round(o.x / 3) + ":" + Math.round(o.y / 3)); if (u && u > W.S.tick) return; } const d = Math.hypot(o.x - x, o.y - y); if (d <= r) c.push([d, o, ch]); });
   c.sort((a, b) => a[0] - b[0]); if (!c.length) return null;
   const e = c[Math.min(c.length - 1, (rnd(W) * Math.min(k, c.length)) | 0)]; return { o: e[1], ch: e[2] };
 }
@@ -520,7 +547,8 @@ function pickJob(W, p, H) {
   const free = r => !busy.get(bkey(r));
   // visits between settlements: people carry news and bundles, and the walking makes roads
   if (S.towns.length > 1 && rnd(W) < .05 && !p.carry) {
-    const others = S.towns.filter(t => t.id !== tw.id), ot = others[(rnd(W) * others.length) | 0], dest = S.b.find(b => b.done && b.town === ot.id && (b.type === "store")) || hallOf(W, ot);
+    const others = S.towns.filter(t => t.id !== tw.id), ot = others[(rnd(W) * others.length) | 0];
+    const farAway = Math.hypot(ot.x - tw.x, ot.y - tw.y) > 150 && rnd(W) > .2, dest = farAway || (W.unr.get("t" + tw.id + ">" + ot.id) || 0) > S.tick ? null : S.b.find(b => b.done && b.town === ot.id && (b.type === "store")) || hallOf(W, ot);
     if (dest) { const d = doorOf(dest); job = "visit"; tx = d.x + (rnd(W) - .5); ty = d.y; p.pack = true; p.visitTo = ot.name; }
   }
   if (!job && !p.carry && S.wonders.length && rnd(W) < .02) { // pilgrims walk to see a wonder their people found
@@ -625,13 +653,81 @@ function think(W, p, H) {
   pickJob(W, p, H);
 }
 const WORK = { quarry: 30, visit: 12, trade: 10, wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
+// ---------- walking routes ----------
+// Villagers do not walk in straight lines over lakes, through other villages or over cliffs: long trips (and any trip whose straight
+// line is blocked) follow a route found on the land, around the water and around the squares of villages they are not going to.
+const RT_N = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];
+function lineBad(x0, y0, x1, y1) {
+  const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(L / .7)); let ph = heightAt(x0, y0);
+  for (let k = 1; k <= n; k++) { const x = x0 + (x1 - x0) * k / n, y = y0 + (y1 - y0) * k / n; if (isWater(x, y)) return true; const h = heightAt(x, y); if (Math.abs(h - ph) > 3.6) return true; ph = h; }
+  return false;
+}
+// is the straight stretch clear with a little room to the sides (so the smoothed route does not scrape the shore)?
+function lineClear(x0, y0, x1, y1) {
+  const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(L / .6)), nx = -(y1 - y0) / (L || 1) * .5, ny = (x1 - x0) / (L || 1) * .5; let ph = heightAt(x0, y0);
+  for (let k = 1; k <= n; k++) { const x = x0 + (x1 - x0) * k / n, y = y0 + (y1 - y0) * k / n; if (isWater(x, y) || isWater(x + nx, y + ny) || isWater(x - nx, y - ny)) return false; const h = heightAt(x, y); if (Math.abs(h - ph) > 3.6) return false; ph = h; }
+  return true;
+}
+// returns { pts } (waypoints, the last one is the goal), { fail: "unreach" } when the whole reachable land was searched, or { fail: "cap" }
+function findRoute(W, x0, y0, x1, y1) {
+  const S = W.S, D = Math.hypot(x1 - x0, y1 - y0), s = D < 50 ? 1 : D < 130 ? 2 : D < 300 ? 4 : 6, mg = 30 + D * .35;
+  const xa = Math.min(x0, x1) - mg, ya = Math.min(y0, y1) - mg, nw = Math.ceil((Math.max(x0, x1) + mg - xa) / s) + 1, nh = Math.ceil((Math.max(y0, y1) + mg - ya) / s) + 1;
+  if (nw * nh > 90000) return { fail: "cap" };
+  const N = nw * nh, gs = new Float32Array(N).fill(1e9), par = new Int32Array(N).fill(-1), st = new Uint8Array(N), wk = new Uint8Array(N), hh = new Float32Array(N);
+  const wx = i => xa + (i % nw) * s, wy = i => ya + Math.floor(i / nw) * s;
+  const fh = S.towns.filter(t => Math.hypot(t.x - x0, t.y - y0) > 14 && Math.hypot(t.x - x1, t.y - y1) > 14);
+  const cell = i => { let v = wk[i]; if (v) return v; const x = wx(i), y = wy(i); hh[i] = heightAt(x, y); if (isWater(x, y)) v = 2; else if (isRiver(x, y)) v = 3; else { v = 1; const rl = isRoad(x, y); if (rl) v = 4; else { const o = occAt(W, x, y); if (o && !TYPES[o.type].field && o.type !== "bridge") v = 5; } for (const t of fh) if (Math.abs(t.x - x) < 11 && Math.abs(t.y - y) < 11 && Math.hypot(t.x - x, t.y - y) < 11) { v = v === 4 ? 4 : 6; break; } } wk[i] = v; return v; };
+  const mult = v => v === 3 ? 3 : v === 4 ? .6 : v === 5 ? 6 : v === 6 ? 5 : 1;
+  const sc = Math.max(0, Math.min(nw - 1, Math.round((x0 - xa) / s))), sr = Math.max(0, Math.min(nh - 1, Math.round((y0 - ya) / s))), gc = Math.max(0, Math.min(nw - 1, Math.round((x1 - xa) / s))), gr = Math.max(0, Math.min(nh - 1, Math.round((y1 - ya) / s)));
+  const si = sr * nw + sc, gi = gr * nw + gc, hf = i => { const dx = Math.abs(i % nw - gc), dy = Math.abs(Math.floor(i / nw) - gr); return (Math.max(dx, dy) + .4142 * Math.min(dx, dy)) * s; };
+  // binary heap of [f, idx]
+  const hp = []; const push = (f, i) => { hp.push([f, i]); let c = hp.length - 1; while (c > 0) { const q = (c - 1) >> 1; if (hp[q][0] <= hp[c][0]) break; const t = hp[q]; hp[q] = hp[c]; hp[c] = t; c = q; } };
+  const pop = () => { const top = hp[0], last = hp.pop(); if (hp.length) { hp[0] = last; let c = 0; for (;;) { let l = c * 2 + 1, r = l + 1, m = c; if (l < hp.length && hp[l][0] < hp[m][0]) m = l; if (r < hp.length && hp[r][0] < hp[m][0]) m = r; if (m === c) break; const t = hp[m]; hp[m] = hp[c]; hp[c] = t; c = m; } } return top; };
+  cell(si); gs[si] = 0; push(hf(si), si); let pops = 0, found = -1; const rch = s * 1.45;
+  while (hp.length) {
+    const [, i] = pop(); if (st[i] === 2) continue; st[i] = 2;
+    if (Math.hypot(wx(i) - x1, wy(i) - y1) <= rch && cell(i) !== 2) { found = i; break; }
+    if (++pops > 32000) return { fail: "cap" };
+    const ci = i % nw, cj = Math.floor(i / nw);
+    for (const [ox, oy, l] of RT_N) {
+      const ni = ci + ox, nj = cj + oy; if (ni < 0 || nj < 0 || ni >= nw || nj >= nh) continue; const k = nj * nw + ni; if (st[k] === 2) continue;
+      const v = cell(k); if (v === 2) continue; if (Math.abs(hh[k] - hh[i]) > 3.6 * Math.min(s, 2) * (l > 1 ? 1.2 : 1)) continue;
+      if (s > 1) { const mx = (wx(i) + wx(k)) / 2, my = (wy(i) + wy(k)) / 2; if (isWater(mx, my)) continue; }
+      const g = gs[i] + l * s * mult(v); if (g < gs[k]) { gs[k] = g; par[k] = i; push(g + hf(k) * 1.05, k); }
+    }
+  }
+  if (found < 0) return { fail: "unreach" };
+  let cellsP = []; for (let i = found; i >= 0; i = par[i]) cellsP.push({ x: wx(i), y: wy(i) }); cellsP.reverse(); cellsP[0] = { x: x0, y: y0 }; cellsP.push({ x: x1, y: y1 });
+  // straighten: keep only the corners that are needed
+  const out = []; let a = 0;
+  while (a < cellsP.length - 1) { let b = cellsP.length - 1; while (b > a + 1 && !lineClear(cellsP[a].x, cellsP[a].y, cellsP[b].x, cellsP[b].y)) b--; out.push(cellsP[b]); a = b; }
+  return { pts: out };
+}
+function giveUp(W, p) {
+  W.unr.set(Math.round(p.tx / 3) + ":" + Math.round(p.ty / 3), W.S.tick + 6000); W.rt.delete(p.id);
+  if (p.trade) { const t = p.trade; tradeAbort(W, p); W.unr.set("t" + t.from + ">" + t.to, W.S.tick + 14400); }
+  p.obj = null; p.job = null; p.pack = false; p.blk = 0; p.state = "idle"; p.t = 3 + rnd(W) * 3;
+}
+function routeOf(W, p, fd) {
+  const tk = W.S.tick; let r = W.rt.get(p.id);
+  if (r && tk - r.lt <= 8 && Math.hypot(p.tx - r.tx, p.ty - r.ty) < 3.5 && Math.hypot(p.x - r.lx, p.y - r.ly) < 3) { r.lt = tk; r.lx = p.x; r.ly = p.y; return r; }
+  r = { tx: p.tx, ty: p.ty, pts: null, i: 0, fail: "", lt: tk, lx: p.x, ly: p.y };
+  if (W.S.phase !== "settled") { W.rt.set(p.id, r); return r; }
+  if (fd > 3 && (fd > 28 || lineBad(p.x, p.y, p.tx, p.ty))) { const f = findRoute(W, p.x, p.y, p.tx, p.ty); if (f.pts) r.pts = f.pts; else r.fail = f.fail; }
+  W.rt.set(p.id, r); return r;
+}
 function walk(W, p, spd) {
-  const dt = DT, dx = p.tx - p.x, dy = p.ty - p.y, d = Math.hypot(dx, dy);
-  if (d < .25) return true;
+  const dt = DT, fdx = p.tx - p.x, fdy = p.ty - p.y, fd = Math.hypot(fdx, fdy);
+  if (fd < .25) { W.rt.delete(p.id); return true; }
+  let gx = p.tx, gy = p.ty;
+  const rt = routeOf(W, p, fd);
+  if (rt.fail === "unreach") { if (p.trek || p.state === "pioneer") p.unr = 1; else { giveUp(W, p); return false; } }
+  if (rt.pts) { while (rt.i < rt.pts.length - 1 && Math.hypot(rt.pts[rt.i].x - p.x, rt.pts[rt.i].y - p.y) < .9) rt.i++; if (rt.i < rt.pts.length - 1) { gx = rt.pts[rt.i].x; gy = rt.pts[rt.i].y; } }
+  const dx = gx - p.x, dy = gy - p.y, d = Math.hypot(dx, dy);
   p.steerT -= dt;
   if (p.steerT <= 0) {
     p.steerT = .5; const base = Math.atan2(dy, dx); let best = -1e9, ba = base;
-    for (const off of [-.9, -.45, 0, .45, .9]) {
+    for (const off of (p.blk > .4 ? [-.9, -.45, 0, .45, .9, -1.5, 1.5, -2.2, 2.2] : [-.9, -.45, 0, .45, .9])) {
       const a = base + off, qx = p.x + Math.cos(a) * .9, qy = p.y + Math.sin(a) * .9;
       let sc = Math.cos(off) + (d > 2 ? Math.min(1, wearAt(W, qx, qy)) * .85 : 0); if (wet(qx, qy) && !isRiver(qx, qy) || steep(p.x, p.y, qx, qy)) sc -= 10; else if (isRiver(qx, qy)) sc -= .9; else if (isRoad(qx, qy)) sc += .35;
       const o = occAt(W, qx, qy); if (o && !TYPES[o.type].field && o.type !== "bridge" && d > 2) sc -= 2;
@@ -640,7 +736,10 @@ function walk(W, p, spd) {
     p.ax = Math.cos(ba); p.ay = Math.sin(ba);
   }
   p.hx += (p.ax - p.hx) * .7; p.hy += (p.ay - p.hy) * .7; const hl = Math.hypot(p.hx, p.hy) || 1;
-  const inR = isRiver(p.x, p.y), rl = isRoad(p.x, p.y), m = Math.min(d, spd * dt * (inR ? .55 : rl === 2 ? 1.45 : rl ? 1.25 : 1)); p.x += p.hx / hl * m; p.y += p.hy / hl * m; p.moving = true;
+  const inR = isRiver(p.x, p.y), rl = isRoad(p.x, p.y), m = Math.min(d, spd * dt * (inR ? .55 : rl === 2 ? 1.45 : rl ? 1.25 : 1)), nx = p.x + p.hx / hl * m, ny = p.y + p.hy / hl * m;
+  // nobody walks into a lake: stop at the shore, look for another way, and after a while give the errand up
+  if (isWater(nx, ny) && !isWater(p.x, p.y)) { p.blk = (p.blk || 0) + dt; p.steerT = 0; p.moving = false; if (p.blk > 4) { if (p.trek || p.state === "pioneer") p.blk = 0; else giveUp(W, p); } return false; }
+  p.blk = 0; p.x = nx; p.y = ny; p.moving = true;
   if (inR && W.S.phase === "settled" && !p.trek) { const k = okey(p.x, p.y); W.S.wade[k] = (W.S.wade[k] || 0) + 1; }
   return false;
 }
@@ -655,7 +754,7 @@ function updatePerson(W, p, H) {
     case "arrive": if (walk(W, p, spd)) { p.state = "idle"; p.t = 1; } break;
     case "idle": case "wait": p.t -= DT; if (p.t <= 0) think(W, p, H); break;
     case "go": {
-      if (p.job === "visit" || p.job === "trade") { p.goT = (p.goT || 0) + DT; if (p.goT > 900) { p.goT = 0; p.pack = false; if (p.trade) tradeAbort(W, p); p.state = "idle"; p.t = 1; break; } }
+      if (p.job === "visit" || p.job === "trade") { p.goT = (p.goT || 0) + DT; if (p.goT > 1800) { p.goT = 0; p.pack = false; if (p.trade) tradeAbort(W, p); p.state = "idle"; p.t = 1; break; } }
       const near = !["rest", "scout", "construct", "sow", "harvest", "tend", "visit", "trade"].includes(p.job) && Math.hypot(p.tx - p.x, p.ty - p.y) < .6;
       if (walk(W, p, spd) || near) {
         if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; const SR = s ? townRes(S, s.town) : S.res; if (s && isSite(s) && (s.need[k] || 0) > 0 && SR[k] > 0) { const n = Math.min(5, s.need[k], SR[k]); SR[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
@@ -689,12 +788,12 @@ function updatePerson(W, p, H) {
     case "patrol": if (!nightWatch(p, H)) { p.state = "idle"; think(W, p, H); break; } if (p.t > 0) { p.t -= DT; break; } if (walk(W, p, spd * .7)) { p.t = 4 + rnd(W) * 10; nextRound(W, p); } break;
     case "church": if (H >= 10.6 || H < 9) { p.inside = false; p.state = "idle"; p.t = rnd(W) * 2; } break;
   }
-  if (p.moving) { const f = addWear(W, p.x, p.y, .034 * DT * (p.trade ? 2.5 : 1)); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
+  if (p.moving && S.towns.some(t => Math.hypot(t.x - p.x, t.y - p.y) < 45)) { const f = addWear(W, p.x, p.y, .034 * DT * (p.trade ? 2.5 : 1)); if (f && cm && Math.hypot(p.x - cm.x - 1.5, p.y - cm.y - 1.5) > 8) milestone(W, "path", "First Footpath", "Your villagers walked their first path into the grass. The Bench is unlocked."); }
 }
 function finishWork(W, p) {
   const S = W.S, j = p.job, o = deref(W, p.obj); p.obj = null;
   if (j === "wood" && o && !o.felled) { o.logs--; p.carry = { type: "wood", amt: 2 }; if (o.logs <= 0) { o.felled = true; o.regrow = 3600; const ch = W.chunks.get(o._k); if (ch) ch.ovDirty = true; } }
-  else if (j === "stone" && o && o.stone > 0) { o.stone--; p.carry = { type: "stone", amt: 1 }; if (o.stone <= 0) { const ch = W.chunks.get(o._k); if (ch) ch.ovDirty = true; } }
+  else if (j === "stone" && o && o.stone > 0) { o.stone--; p.carry = { type: "stone", amt: 1 }; if (o.stone <= 0) { o.regrow = o.big ? 57600 : 36000; const ch = W.chunks.get(o._k); if (ch) ch.ovDirty = true; } }
   else if (j === "berries" && o && o.berries > 0) { o.berries--; p.carry = { type: "food", amt: 2 }; if (o.berries <= 0) o.regrow = 600; }
   else if (j === "fish") { p.carry = { type: "food", amt: 3 }; }
   else if (j === "sow" && o && o.stage === 0) { o.work += 1; if (o.work >= 3) { o.stage = 1; o.work = 0; o.grow = 0; W.events.push({ k: "field", b: o }); } }
@@ -757,6 +856,9 @@ function findSite(W, type, ax, ay, rmin, rmax, again) {
   if (!best && !again && !T.deco) return findSite(W, type, ax, ay, rmax, rmax + 10, true);
   return best;
 }
+// roads only grow near a village and only out of the village or out of an existing road, so they never wander through the wild
+const roadZone = (S, x, y) => S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 30);
+const roadJoins = (x, y) => { if (ROAD.has((x + 1) + ":" + y) || ROAD.has((x - 1) + ":" + y) || ROAD.has(x + ":" + (y + 1)) || ROAD.has(x + ":" + (y - 1))) return true; return ACTIVE.S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 9); };
 function plan(W) {
   const S = W.S; if (!camp(W)) return;
   // the busiest paths slowly become gravel roads; the busiest roads become wide cobbled main roads
@@ -769,7 +871,8 @@ function plan(W) {
         if (ch.fog[j * C + i]) continue; const x = ch.x0 + i, y = ch.y0 + j, k = x + ":" + y, lv = ROAD.get(k) || 0;
         const w0 = ch.wear[(j * 4 + 2) * C4 + i * 4 + 2]; if (w0 < WK * .6) continue;
         const w = Math.max(wearAt(W, x + .5, y + .5), wearAt(W, x + .25, y + .25), wearAt(W, x + .75, y + .75));
-        if (lv === 0 && w >= 1.0 && !W.occ.has(k) && !wet(x + .5, y + .5)) c1.push([w, k]);
+        if (!roadZone(S, x + .5, y + .5)) continue;
+        if (lv === 0 && w >= 1.0 && !W.occ.has(k) && !wet(x + .5, y + .5) && lakeV(x + .5, y + .5) < .6 && roadJoins(x, y)) c1.push([w, k]);
         else if (lv === 1 && w >= 1.32) c2.push([w, k]);
       }
     }
@@ -777,14 +880,9 @@ function plan(W) {
     if (got.length) { for (const k of got) { ROAD.set(k, 1); S.road.push(k); } RS.stone -= got.length * 2; W.events.push({ k: "road", tiles: got }); if (!S.ms.road) milestone(W, "road", "First Road", "The busiest path was paved with gravel. Walking is faster on roads."); }
     if (RS.stone >= 180 && c2.length) {
       c2.sort((p, q) => q[0] - p[0]); const up = c2.slice(0, 3).map(q => q[1]), wide = [];
-      for (const k of up) {
-        ROAD.set(k, 2); S.road2.push(k); S.road = S.road.filter(q => q !== k);
-        const [x, y] = k.split(":").map(Number); let bk = null, bw = .45; // widen to the busiest neighbour
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nk = (x + dx) + ":" + (y + dy); if (ROAD.has(nk) || W.occ.has(nk) || wet(x + dx + .5, y + dy + .5)) continue; const w = wearAt(W, x + dx + .5, y + dy + .5); if (w > bw) { bw = w; bk = nk; } }
-        if (bk) { ROAD.set(bk, 1); S.road.push(bk); wide.push(bk); }
-      }
+      for (const k of up) { ROAD.set(k, 2); S.road2.push(k); S.road = S.road.filter(q => q !== k); }
       RS.stone -= up.length * 4 + wide.length * 2; W.events.push({ k: "road", tiles: up.concat(wide) });
-      if (!S.ms.road2) milestone(W, "road2", "A Main Road", "So many feet walked here that the villagers laid a wide cobbled road.");
+      if (!S.ms.road2) milestone(W, "road2", "A Main Road", "So many feet walked here that the villagers laid a cobbled road.");
     }
   }
   // wet feet: where villagers wade across the stream most, they build a bridge
@@ -1048,9 +1146,10 @@ function trekLaunch(W, tx, ty, by) {
   const S = W.S; if (S.phase !== "settled") return "Settle first.";
   if (S.trek) return "The explorers are already out.";
   const h = homeOf(W), d = Math.hypot(tx - h.x, ty - h.y);
-  if (d < 18) return "Too close. Pick a place farther away."; if (d > 240) return "Too far for one trip.";
+  if (d < 18) return "Too close. Pick a place farther away."; if (d > 700) return "Too far for one trip.";
   if (resOf(S, homeTown(W)).food < 24) return "Not enough food to pack. The explorers need 24.";
   const T = dryNear(tx, ty); if (!T) return "That is open water. Pick land.";
+  if (!landRoute(W, h, T)) return "There is no way there on foot (water or cliffs are in the way).";
   const score = p => (p.role === "scout" ? 3 : 0) + (p.trait === "curious" ? 2 : p.trait === "early riser" || p.trait === "hard worker" ? 1 : 0);
   const pool = S.people.filter(p => !p.pioneer && !p.watch && !p.trek && !p.carry && !p.asleep && !p.inside && p.state !== "bed" && p.state !== "sleep" && p.role !== "build");
   if (pool.length < 2) return "Not enough free hands right now.";
@@ -1062,7 +1161,7 @@ function trekLaunch(W, tx, ty, by) {
   const a0 = rnd(W) * 6.28, looks = [0, 1, 2].map(i => { const q = dryNear(T.x + Math.cos(a0 + i * 2.1) * 10, T.y + Math.sin(a0 + i * 2.1) * 10) || T; return { x: q.x, y: q.y, k: "look" }; });
   const back = legs.slice(0, L - 1).reverse().map(q => ({ x: q.x, y: q.y, k: "back" })).concat([{ x: h.x, y: h.y, k: "home" }]);
   const dir = compass(T.x - h.x, T.y - h.y), name = dir[0].toUpperCase() + dir.slice(1) + "ern Expedition";
-  S.trek = { name: name.replace("north-ern", "North-eastern").replace(/ern Expedition$/, "ern Expedition"), dir, members: mem.map(p => p.id), hx: h.x, hy: h.y, tx: T.x, ty: T.y, path: [...legs, ...looks, ...back], i: 0, rest: 0, restAct: "", at: S.tick, found: [], stuck: 0, sk: 60, bd: 1e9, by, far: Math.round(d) };
+  S.trek = { name: name.replace("north-ern", "North-eastern").replace(/ern Expedition$/, "ern Expedition"), dir, members: mem.map(p => p.id), hx: h.x, hy: h.y, tx: T.x, ty: T.y, path: [...legs, ...looks, ...back], i: 0, rest: 0, restAct: "", at: S.tick, found: [], stuck: 0, sk: 60, bd: 1e9, by, far: Math.round(d), rf: d > 150 ? .35 : 1 };
   resOf(S, homeTown(W)).food -= 24;
   for (const p of mem) { p.obj = null; p.carry = null; p.job = null; p.pack = true; p.trek = 1; p.state = "trek"; p.sit = false; p.inside = false; p.asleep = false; p.act = "Setting out on an expedition"; }
   addLog(W, mem.map(p => p.name).join(", ") + " set out to the " + dir + " with food for the road (" + Math.round(d) + " tiles). " + (by === "mayor" ? "The Mayor asked them to." : "They could not sit still any longer."));
@@ -1090,17 +1189,21 @@ function trekStep(W, p, H) {
   const idx = T.members.indexOf(p.id);
   if (T.rest > 0) { if (idx === 0) T.rest -= DT; p.sit = true; p.act = T.restAct || "Resting"; return; }
   if (idx > 0) {
-    if (Math.hypot(p.x - lead.x, p.y - lead.y) > 10) { p.x = lead.x - .8 * idx; p.y = lead.y + .5 * idx; }
-    p.tx = lead.x + (idx % 2 ? -.9 : .9); p.ty = lead.y + .35 * idx; if (Math.hypot(p.tx - p.x, p.ty - p.y) > .7) walk(W, p, TREK_SPD * 1.25); p.act = "On an expedition"; return;
+    if (Math.hypot(p.x - lead.x, p.y - lead.y) > 10) { const q = dryNear(lead.x - .8 * idx, lead.y + .5 * idx) || dryNear(lead.x, lead.y) || lead; p.x = q.x; p.y = q.y; }
+    else if (isWater(p.x, p.y) && !p.boat) { const q = dryNear(p.x, p.y); if (q) { p.x = q.x; p.y = q.y; } }
+    { const q = dryNear(lead.x + (idx % 2 ? -.9 : .9), lead.y + .35 * idx) || lead; p.tx = q.x; p.ty = q.y; } if (Math.hypot(p.tx - p.x, p.ty - p.y) > .7) walk(W, p, TREK_SPD * 1.25); p.act = "On an expedition"; return;
   }
+  if (isWater(p.x, p.y) && !p.boat) { const q = dryNear(p.x, p.y); if (q) { p.x = q.x; p.y = q.y; } }
   const wp = T.path[T.i]; if (!wp) { trekFinish(W); return; }
   p.tx = wp.x; p.ty = wp.y; p.act = wp.k === "look" ? "Exploring the area" : wp.k === "home" || wp.k === "back" ? "Heading home" : "On an expedition to the " + T.dir;
-  if (walk(W, p, TREK_SPD) || Math.hypot(wp.x - p.x, wp.y - p.y) < 1.3) {
-    T.i++; T.bd = 1e9; T.stuck = 0; T.sk = 60;
+  const arrived = walk(W, p, TREK_SPD) || Math.hypot(wp.x - p.x, wp.y - p.y) < 1.3;
+  if (p.unr && !arrived) { p.unr = 0; T.i++; T.bd = 1e9; T.stuck = 0; T.sk = 60; return; } // no way there on foot: skip this stop
+  if (arrived) {
+    p.unr = 0; T.i++; T.bd = 1e9; T.stuck = 0; T.sk = 60;
     if (wp.k === "home") { trekFinish(W); return; }
     if (wp.last) { T.rest = 600 + rnd(W) * 600; T.restAct = "Making camp and studying the land"; addLog(W, "The explorers reached the place they were heading for and are looking around."); }
     else if (wp.k === "look") { T.rest = 480 + rnd(W) * 600; T.restAct = "Exploring the area"; }
-    else { T.rest = 480 + rnd(W) * 720; T.restAct = wp.k === "back" ? "Resting on the way home" : "Resting and eating"; if (rnd(W) < .3) addLog(W, TREK_TALES[(rnd(W) * TREK_TALES.length) | 0].replace("%", p.name)); }
+    else { T.rest = (480 + rnd(W) * 720) * (T.rf || 1); T.restAct = wp.k === "back" ? "Resting on the way home" : "Resting and eating"; if (rnd(W) < .3) addLog(W, TREK_TALES[(rnd(W) * TREK_TALES.length) | 0].replace("%", p.name)); }
     return;
   }
   T.sk -= DT;
@@ -1110,7 +1213,7 @@ function trekStep(W, p, H) {
       T.stuck++;
       if (T.stuck >= 10 && wp.k === "home") { for (const q of S.people) if (T.members.includes(q.id)) { q.x = T.hx; q.y = T.hy; } addLog(W, "The explorers got lost, but a farmer showed them the way home."); trekFinish(W); return; }
       if (T.stuck >= 6) { T.i++; T.stuck = 0; }
-      else if (T.stuck >= 2) { const a = Math.atan2(wp.y - p.y, wp.x - p.x) + (T.stuck % 2 ? 1.1 : -1.1), q = dryNear(p.x + Math.cos(a) * 10, p.y + Math.sin(a) * 10); if (q) T.path.splice(T.i, 0, { x: q.x, y: q.y, k: "detour" }); }
+      else if (T.stuck >= 2 && T.path.length < 160) { const a = Math.atan2(wp.y - p.y, wp.x - p.x) + (T.stuck % 2 ? 1.1 : -1.1), q = dryNear(p.x + Math.cos(a) * 10, p.y + Math.sin(a) * 10); if (q) T.path.splice(T.i, 0, { x: q.x, y: q.y, k: "detour" }); }
     } else T.stuck = 0;
     T.bd = d;
   }
@@ -1124,12 +1227,15 @@ function trekAI(W, H) {
   if (S.rumor) { tx = S.rumor.x + (rnd(W) - .5) * 8; ty = S.rumor.y + (rnd(W) - .5) * 8; }
   else {
     let best = -1e9;
-    for (let a = 0; a < 24; a++) for (const r of (S.wantLand ? [60, 75, 90, 110] : [45, 70, 95, 120])) {
+    const far = !!S.wantLand, cl = [];
+    for (let a = 0; a < 24; a++) for (const r of (far ? [TOWN_GAP + 25, TOWN_GAP + 80, TOWN_GAP + 140, TOWN_GAP + 210] : [45, 70, 95, 120])) {
       const ang = a / 24 * 6.283, x = h.x + Math.cos(ang) * r, y = h.y + Math.sin(ang) * r; if (isWater(x, y) || heightAt(x, y) > 34) continue;
-      let ok = 0; for (let k = 1; k <= 8; k++) if (!isWater(h.x + Math.cos(ang) * r * k / 8, h.y + Math.sin(ang) * r * k / 8)) ok++; if (ok < 7) continue;
+      if (far && (!S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= TOWN_GAP * .95) || !siteOk(W, x, y, true))) continue;
+      let ok = 0; for (let k = 1; k <= 8; k++) if (!isWater(h.x + Math.cos(ang) * r * k / 8, h.y + Math.sin(ang) * r * k / 8)) ok++; if (ok < (far ? 4 : 7)) continue;
       let hid = 0; for (const [dx, dy] of [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]]) if (hidden(W, x + dx, y + dy)) hid++;
-      const sc = hid * 10 - r * .12 + ih(a * 31 + (S.seed & 255), r) * 4; if (sc > best) { best = sc; tx = x; ty = y; }
+      const sc = hid * 10 - r * (far ? .02 : .12) + ih(a * 31 + (S.seed & 255), r) * 4; cl.push({ sc, x, y });
     }
+    cl.sort((p, q) => q.sc - p.sc); for (const c of cl.slice(0, 5)) if (landRoute(W, h, c)) { best = c.sc; tx = c.x; ty = c.y; break; }
     if (best < -1e8) { S.trekRetry = S.tick + 28800; return; }
   }
   const err = trekLaunch(W, tx, ty, "ai"); if (err) S.trekRetry = S.tick + 7200;
@@ -1301,7 +1407,7 @@ function boatDiscover(W) {
 // ---------- the whole world, one tick ----------
 export function pathAt(S, d) { const P = S.wagon.path; if (!P) return { x: S.wagon.x, y: S.wagon.y }; const i = clamp(Math.floor(d / .25), 0, P.length - 1); return P[i]; }
 // several worlds can live in one page (e.g. while resyncing); terrain helpers follow the active one
-export function activate(W) { if (ACTIVE === W) return; ACTIVE = W; ISLC = new Map(); SX = W.sx; SY = W.sy; DX = W.dx; DY = W.dy; OVER = W.over; ROAD = W.road; }
+export function activate(W) { if (ACTIVE === W) return; ACTIVE = W; ISLC = new Map(); GVN = W.gvn || 0; SX = W.sx; SY = W.sy; DX = W.dx; DY = W.dy; OVER = W.over; ROAD = W.road; }
 export function step(W) {
   activate(W);
   const S = W.S; S.tick++;
@@ -1322,13 +1428,23 @@ export function step(W) {
   if (S.phase === "settled") {
     const sea = seasonOf(month);
     if (S.tick % 20 === 0) {
+      for (const p of S.people) if (!p.boat && p.state !== "sail" && isWater(p.x, p.y)) { const q = dryNear(p.x, p.y); if (q) { p.x = q.x; p.y = q.y; p.blk = 0; W.rt.delete(p.id); } } // nobody stays in a lake: lead them to the shore
       for (const ch of W.chunks.values()) {
         if (ch.worn !== false) { const wr = ch.wear; let any = false; for (let k = 0; k < wr.length; k++) { const o = wr[k]; if (o) { const n = o > 9 ? o - 9 : 0; wr[k] = n; if (n) any = true; if (((o / WK * 14) | 0) !== ((n / WK * 14) | 0)) W.dirtyGround.push(ch, k); } } ch.worn = any; }
         for (const t of ch.trees) {
           if (!t.felled || t.gone) continue;
           if (t.sapling) { t.regrow -= 5; if (t.regrow <= 0) { t.felled = false; t.sapling = false; t.logs = 3; ch.ovDirty = true; } }
-          else { t.rot = (t.rot || 0) + 5; if (t.cleared || t.rot >= (nearVillage(W, t.x, t.y) ? 21600 : 86400)) { t.gone = true; ch.ovDirty = true; } }
+          else {
+            // an old stump sprouts again (most of them), or rots away: the forest never runs out for good
+            t.rot = (t.rot || 0) + 5;
+            if (t.cleared) { t.gone = true; ch.ovDirty = true; }
+            else if (t.rot >= (nearVillage(W, t.x, t.y) ? 7200 : 28800)) {
+              if (ih(Math.floor(t.x * 17) + SX, Math.floor(t.y * 13) + SY) < .92 && plantable(W, t.x, t.y, t)) { t.sapling = true; t.regrow = 1800; t.rot = 0; } else t.gone = true;
+              ch.ovDirty = true;
+            }
+          }
         }
+        for (const r of ch.rocks) if (r.regrow > 0) { r.regrow -= 5; if (r.regrow <= 0) { if (openGround(W, r.x, r.y) && ih(Math.floor(r.x * 11) + SY, Math.floor(r.y * 19) + SX) < .7) { r.stone = r.big ? 3 : 2; ch.ovDirty = true; } else r.regrow = 0; } }
         for (const b of ch.bushes) if (b.regrow > 0) { b.regrow -= 5; if (b.regrow <= 0) b.berries = 3; }
       }
       // fields grow (not in winter)
@@ -1450,7 +1566,7 @@ function tradeAI(W, H) {
     for (const T of S.towns) { const r = ratioOf(W, T, k); if (r < br && (T.coin || 0) > -3 && !flying.some(p => p.trade.to === T.id && p.trade.k === k)) { br = r; buyer = T; } }
     if (!buyer) continue;
     let seller = null, sr = .55;
-    for (const T of S.towns) { if (T === buyer) continue; const r = ratioOf(W, T, k), d = Math.hypot(T.x - buyer.x, T.y - buyer.y); if (r > sr && r - br >= .3 && d < 160) { sr = r; seller = T; } }
+    for (const T of S.towns) { if (T === buyer) continue; const r = ratioOf(W, T, k), d = Math.hypot(T.x - buyer.x, T.y - buyer.y); if (r > sr && r - br >= .3 && d < TRADE_REACH && !((W.unr.get("t" + T.id + ">" + buyer.id) || 0) > S.tick)) { sr = r; seller = T; } }
     if (!seller) continue;
     const sR = resOf(S, seller), bR = resOf(S, buyer), amt = Math.min(24, Math.floor(sR[k] - capT(W, seller) * .45), Math.floor(capT(W, buyer) * .5 - bR[k]));
     if (amt < 6) continue;
@@ -1467,7 +1583,8 @@ function tradeAI(W, H) {
 // A new settlement needs a reason and a known land. It only goes where the people have already been (the land around it and the way
 // to it are explored), far from the other villages, and either next to a wonder (which then gives that village a gift) or in a
 // place that is rich in timber, stone or fertile land.
-const TOWN_GAP = 55, WONDER_GAP = 36;
+// Towns are far apart: a few hundred steps, a real journey on foot (about 6 minutes for one town to reach the next).
+const TOWN_GAP = 400, WONDER_GAP = 260, TOWN_REACH = 640, TRADE_REACH = 700;
 const WFX_PCT = 30; // a village beside a wonder gets +30% of what that wonder gives (or +12% walking speed)
 export const townBonus = (T, f) => (T && T.fx === f) ? (f === "speed" ? .12 : f === "come" ? 0 : WFX_PCT / 100) : 0;
 function exploredFrac(W, x, y, r) {
@@ -1479,9 +1596,9 @@ function corridorHidden(W, a, b) {
   for (let k = 1; k < 12; k++) for (const o of [-4, 0, 4]) { const x = a.x + (b.x - a.x) * k / 12 + nx * o, y = a.y + (b.y - a.y) * k / 12 + ny * o; if (isWater(x, y)) continue; n++; if (hidden(W, x, y)) h++; }
   return n ? h / n : 0;
 }
-function siteOk(W, x, y) {
-  if (wet(x, y) || isWater(x, y) || heightAt(x, y) > 22 || hidden(W, x, y)) return false;
-  for (let j = -2; j <= 2; j += 2) for (let k = -2; k <= 2; k += 2) if (wet(x + k, y + j) || steep(x + k, y + j, x + k + 1, y + j) || steep(x + k, y + j, x + k, y + j + 1)) return false;
+function siteOk(W, x, y, blind) {
+  if (wet(x, y) || isWater(x, y) || heightAt(x, y) > 22 || (!blind && hidden(W, x, y))) return false;
+  for (let j = -2; j <= 2; j += 2) for (let k = -2; k <= 2; k += 2) if (wet(x + k, y + j) || lakeV(x + k, y + j) > .62 || steep(x + k, y + j, x + k + 1, y + j) || steep(x + k, y + j, x + k, y + j + 1)) return false;
   return true;
 }
 function townSite(W) {
@@ -1489,25 +1606,27 @@ function townSite(W) {
   const nearestTown = (x, y) => S.towns.reduce((a, t) => Math.hypot(t.x - x, t.y - y) < Math.hypot(a.x - x, a.y - y) ? t : a, S.towns[0]);
   const gapOk = (x, y, g) => S.towns.every(q => Math.hypot(q.x - x, q.y - y) >= g);
   // 1) beside a wonder that no village uses yet
+  const wl = [], rl = [];
   for (const w of S.wonders) {
     if (!WONDERS[w.k] || S.towns.some(t => t.wid === w.id)) continue;
     for (let i = 0; i < 12; i++) for (const r of [8, 10, 12]) {
       const a = i / 12 * Math.PI * 2 + (w.x % 7) * .3, x = w.x + Math.cos(a) * r, y = w.y + Math.sin(a) * r;
       if (!gapOk(x, y, WONDER_GAP) || !siteOk(W, x, y)) continue;
-      const from = nearestTown(x, y), d = Math.hypot(from.x - x, from.y - y); if (d > 190) continue;
-      if (exploredFrac(W, x, y, 8) < .55 || corridorHidden(W, from, { x, y }) > .35) continue;
+      const from = nearestTown(x, y), d = Math.hypot(from.x - x, from.y - y); if (d > TOWN_REACH) continue;
+      if (exploredFrac(W, x, y, 8) < .55 || corridorHidden(W, from, { x, y }) > (d > 150 ? .6 : .35)) continue;
       let water = false; for (let q = 0; q < 8 && !water; q++) for (let dd = 3; dd <= 10; dd += 3) if (wet(x + Math.cos(q * .785) * dd, y + Math.sin(q * .785) * dd)) { water = true; break; }
-      const sc = 20 - d / 20 + (water ? 1.5 : 0) - r * .1;
-      if (!best || sc > best.sc) best = { x, y, sc, from, wonder: w, why: "next to " + WONDERS[w.k].name };
+      const sc = 20 - d / 60 + (water ? 1.5 : 0) - r * .1;
+      wl.push({ x, y, sc, from, wonder: w, why: "next to " + WONDERS[w.k].name });
     }
   }
-  if (best) return best;
+  wl.sort((a, b) => b.sc - a.sc); for (const c of wl.slice(0, 4)) if (landRoute(W, c.from, c)) return c;
   // 2) a rich place in land the people already know: scan the known land on a grid, cheap tests first
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const t of S.towns) { x0 = Math.min(x0, t.x); x1 = Math.max(x1, t.x); y0 = Math.min(y0, t.y); y1 = Math.max(y1, t.y); }
   const cands = [];
-  for (let y = Math.floor((y0 - 110) / 8) * 8; y <= y1 + 110; y += 8) for (let x = Math.floor((x0 - 110) / 8) * 8; x <= x1 + 110; x += 8) {
-    const t = nearestTown(x, y), d = Math.hypot(t.x - x, t.y - y); if (d > 112 || !gapOk(x, y, TOWN_GAP) || !siteOk(W, x, y)) continue;
-    if (exploredFrac(W, x, y, 10) < .7 || corridorHidden(W, t, { x, y }) > .25) continue;
+  for (let y = Math.floor((y0 - TOWN_REACH) / 12) * 12; y <= y1 + TOWN_REACH; y += 12) for (let x = Math.floor((x0 - TOWN_REACH) / 12) * 12; x <= x1 + TOWN_REACH; x += 12) {
+    if (hidden(W, x, y)) continue;
+    const t = nearestTown(x, y), d = Math.hypot(t.x - x, t.y - y); if (d > TOWN_REACH || !gapOk(x, y, TOWN_GAP) || !siteOk(W, x, y)) continue;
+    if (exploredFrac(W, x, y, 10) < .7 || corridorHidden(W, t, { x, y }) > (d > 150 ? .6 : .25)) continue;
     cands.push({ x, y, t, d });
   }
   for (const c of cands) {
@@ -1520,13 +1639,15 @@ function townSite(W) {
       for (const o of ch.rocks) if (Math.abs(o.x - x) < 12 && Math.abs(o.y - y) < 12) rk++;
       for (const o of ch.bushes) if (Math.abs(o.x - x) < 10 && Math.abs(o.y - y) < 10) bu++;
     }
-    const sc = -(d - 58) * .02 + (water ? 3 : 0) + Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4 + (flowerV(x, y) > .45 || birchV(x, y) > .45 ? .8 : 0);
-    if (sc < 6) continue; // not worth leaving home for
+    const sc = -(d - TOWN_GAP) * .004 + (water ? 3 : 0) + Math.min(tr, 30) / 10 + (rk ? 1.2 : 0) + Math.min(bu, 6) / 4 + (flowerV(x, y) > .45 || birchV(x, y) > .45 ? .8 : 0);
+    if (sc < 5) continue; // not worth leaving home for
     const why = rk >= 4 ? "in rocky hills with plenty of stone" : tr >= 24 ? "in a forest full of timber" : water && bu >= 2 ? "on fertile land by the water" : water ? "by the water" : "on good open land";
-    if (!best || sc > best.sc) best = { x, y, sc, from: t, why };
+    rl.push({ x, y, sc, from: t, why });
   }
-  return best;
+  rl.sort((a, b) => b.sc - a.sc); for (const c of rl.slice(0, 4)) if (landRoute(W, c.from, c)) return c;
+  return null;
 }
+function landRoute(W, a, b) { const r = findRoute(W, a.x, a.y, b.x, b.y); return !!r.pts || r.fail === "cap"; }
 function expeditions(W) {
   const S = W.S, n = S.people.length;
   if (S.exp) {
@@ -1534,7 +1655,8 @@ function expeditions(W) {
     const there = mem.filter(p => p.state === "camp").length, late = S.tick - e.at > 28800;
     if (!lead) { S.exp = null; return; }
     if (there >= Math.min(2, mem.length) || late) {
-      const site = findSite(W, "outpost", lead.x, lead.y, 0, 9);
+      const need = (e.wid ? WONDER_GAP : TOWN_GAP) * .9, tooNear = S.towns.some(t => Math.hypot(t.x - lead.x, t.y - lead.y) < need);
+      const site = tooNear ? null : findSite(W, "outpost", lead.x, lead.y, 0, 9);
       if (!site) { if (late) { for (const p of mem) { p.state = "idle"; p.pioneer = 0; } S.exp = null; S.lastFound = S.tick; addLog(W, "The pioneers found no good place and came back."); } return; }
       const id = S.towns.length + 1, name = e.name, b = addBuilding(W, "outpost", site.x, site.y, "ai"); b.done = true;
       const src0 = S.towns.find(t => t.name === e.from) || S.towns[0], SR0 = resOf(S, src0), pack = { food: 0, wood: 0, stone: 0 };
@@ -1649,7 +1771,7 @@ export function serialize(W) {
     if (ch.fog.some(v => v === 0)) { o.f = rle(ch.fog); any = true; } else { o.f = 0; any = true; }
     const tf = []; ch.trees.forEach(t => { if (t.felled || t.logs < 3 || t.gone || t.i >= ch.nb) tf.push([t.i, t.felled ? 1 : 0, t.logs, Math.round(t.regrow || 0), t.cleared ? 1 : 0, t.sapling ? 1 : 0, t.gone ? 1 : 0, Math.round(t.rot || 0)]); }); if (tf.length) { o.t = tf; any = true; }
     if (ch.trees.length > ch.nb) { o.n = ch.trees.slice(ch.nb).map(t => [Math.round(t.x * 100) / 100, Math.round(t.y * 100) / 100, t.t, Math.round(t.s * 100) / 100, Math.round(t.v * 100) / 100]); any = true; }
-    const rs = []; ch.rocks.forEach(r => { const full = r.big ? 6 : 2; if (r.stone !== full) rs.push([r.i, r.stone]); }); if (rs.length) { o.r = rs; any = true; }
+    const rs = []; ch.rocks.forEach(r => { const full = r.big ? 6 : 2; if (r.stone !== full || r.regrow > 0) rs.push([r.i, r.stone, Math.round(r.regrow || 0)]); }); if (rs.length) { o.r = rs; any = true; }
     const bs = []; ch.bushes.forEach(b => { if (b.gone || b.berries < 3) bs.push([b.i, b.gone ? 1 : 0, b.berries, Math.round(b.regrow)]); }); if (bs.length) { o.b = bs; any = true; }
     if (any) chunks[ch.k] = o;
   }
@@ -1662,7 +1784,7 @@ function applyOverrides(ch, o) {
   if (o.f) ch.fog = unrle(o.f, C * C);
   if (o.n) for (const [x, y, tt, sz, v] of o.n) ch.trees.push({ x, y, t: tt, s: sz, v, logs: 3, felled: true, regrow: 0, cleared: false, sapling: true, i: ch.trees.length, _k: ch.k, planted: true });
   if (o.t) for (const [i, f, l, r, c, sp, g, rot] of o.t) { const t = ch.trees[i]; if (t) { t.felled = !!f; t.logs = l; t.regrow = r; t.cleared = !!c; t.sapling = !!sp; t.gone = !!g; t.rot = rot || 0; } }
-  if (o.r) for (const [i, s] of o.r) { if (ch.rocks[i]) ch.rocks[i].stone = s; }
+  if (o.r) for (const [i, s, rg] of o.r) { if (ch.rocks[i]) { ch.rocks[i].stone = s; ch.rocks[i].regrow = rg || 0; } }
   if (o.b) for (const [i, g, be, r] of o.b) { const b = ch.bushes[i]; if (b) { b.gone = !!g; b.berries = be; b.regrow = r; } }
 }
 export function load(json) {
