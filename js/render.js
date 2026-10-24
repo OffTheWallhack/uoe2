@@ -98,7 +98,22 @@ function pix(ch, gx, gy, P, x, y, face, z) {
   }
   const ht = z;
   if (ov && ov.k === "f") { let c = h < .33 ? [146, 138, 124] : h < .66 ? [170, 160, 142] : [124, 116, 104]; if (h2 < .1) c = [196, 188, 170]; if (P.snow && h2 < .5) c = P.g[2]; return c; }
-  const rl = M.isRoad(x, y); if (rl) { const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1, edge = Math.min(fx, fy, 1 - fx, 1 - fy); if (edge > .06 || M.isRoad(x + (fx < .5 ? -1 : 1), y) || M.isRoad(x, y + (fy < .5 ? -1 : 1))) { if (rl === 2 && !P.snow) { const u = x * 3.2 + (Math.floor(y * 3.2) & 1) * .5, v = y * 3.2, gu = u - Math.floor(u), gv = v - Math.floor(v); if (gu < .14 || gv < .16) return [96, 90, 82]; const r = M.ih(Math.floor(u) * 13 + 7, Math.floor(v) * 11 + 3), q = 150 + r * 34 - (gu > .8 || gv > .8 ? 18 : 0); return [q, q * .96, q * .9]; } let c = h < .3 ? [140, 128, 108] : h < .7 ? [162, 150, 128] : [122, 110, 94]; if (h2 < .08) c = [196, 186, 164]; if (P.snow && h2 < .7) c = P.g[1]; return c; } }
+  const rl = M.isRoad(x, y);
+  if (rl) {
+    // a path, not a stamped square: the edge wobbles, corners are rounded and the verge blends into the grass
+    const fx = ((x % 1) + 1) % 1, fy = ((y % 1) + 1) % 1, sx1 = fx < .5 ? -1 : 1, sy1 = fy < .5 ? -1 : 1;
+    const jx = !!M.isRoad(x + sx1, y), jy = !!M.isRoad(x, y + sy1), dxe = fx < .5 ? fx : 1 - fx, dye = fy < .5 ? fy : 1 - fy;
+    let d = jx && jy ? 1 : jx ? dye : jy ? dxe : Math.min(dxe, dye); if (!jx && !jy && dxe < .25 && dye < .25) d = Math.min(d, .25 - Math.hypot(.25 - dxe, .25 - dye));
+    const mg = .07 + .13 * M.vn(x * 5.5 + 11, y * 5.5 - 7, 1) + (h2 - .5) * .05;
+    if (d >= mg) {
+      if (d < mg + .07) { let c = h < .5 ? [118, 102, 80] : [132, 116, 90]; if (P.snow && h2 < .6) c = P.g[1]; return c; }
+      if (rl === 2 && !P.snow) { const u = x * 3.2 + (Math.floor(y * 3.2) & 1) * .5, v = y * 3.2, gu = u - Math.floor(u), gv = v - Math.floor(v); if (gu < .12 || gv < .14) return [104, 96, 86]; const r = M.ih(Math.floor(u) * 13 + 7, Math.floor(v) * 11 + 3), q = 146 + r * 40 - (gu > .8 || gv > .8 ? 16 : 0); return [q, q * .95, q * .87]; }
+      let c = h < .3 ? [150, 134, 108] : h < .7 ? [170, 154, 126] : [132, 118, 96];
+      if (h2 < .07) c = [204, 192, 166]; else if (h2 > .94) c = [112, 100, 82];
+      if (P.snow && h2 < .7) c = P.g[1];
+      return c;
+    }
+  }
   if (lk > .7) { const dp = M.clamp((lk - .7) / .08, 0, 1); let c = P.water[dp > .5 ? 0 : 1]; if (h2 < .06) c = P.water[2]; if (!P.snow && ((((x * 3 + y * 2) % 1) + 1) % 1 < .08)) c = P.water[2]; return c; }
   if (g.rv[k] < 2.2) { // the stream and its pebbly banks
     if (M.isRiver(x, y)) { let c = P.snow ? [176, 200, 216] : [70, 128, 160]; if (h2 < .1 || (((x + y * 1.7) * 2.5) % 1 + 1) % 1 < .12) c = P.snow ? [214, 228, 238] : [130, 180, 200]; return c; }
@@ -570,6 +585,7 @@ function drawPerson(x, y, p, fr) {
     if (p.job === "wood" || p.job === "stone" || p.job === "construct") { px(ctx, x + 2, y - 6 + sw * 2, 1, 3, "#6a4a2c"); px(ctx, x + 2, y - 6 + sw * 2, 2, 1, "#b8b8b8"); }
     else if (p.job === "fish") { ctx.fillStyle = "#cfd6d8"; for (let i = 0; i < 5; i++) ctx.fillRect(x + 2 + i, y - 7 + i, 1, 1); }
     else if (p.job === "berries" || p.job === "harvest" || p.job === "sow") px(ctx, x + 2, y - 3 + sw, 2, 2, "#8a5a30");
+    else if (p.job === "chore") { px(ctx, x + 2, y - 6 + sw, 1, 4, "#6a4a2c"); px(ctx, x + 1, y - 2 + sw, 3, 1, "#c8a860"); }
   }
   if (p.state === "patrol") { px(ctx, x + 2, y - 5 + bob, 1, 2, "#3a2c22"); px(ctx, x + 2, y - 3 + bob, 2, 2, "#ffd27a"); px(ctx, x + 2, y - 3 + bob, 1, 1, "#fff4c0"); }
   if (p.pack && !p.carry) { px(ctx, x - 3, y - 7 + bob, 3, 3, "#7a5634"); px(ctx, x - 3, y - 7 + bob, 3, 1, "#a07848"); }

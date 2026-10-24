@@ -209,7 +209,7 @@ export function wrap(S) {
   if (S.entry) { const L = Math.hypot(ex, ey), nx = ey / L, ny = -ex / L; for (let t = 0; t <= 1; t += .4 / L) { const o = Math.sin(t * Math.PI) * Math.sin(t * 7 + S.seed % 7) * 2.4; W.trail.push({ x: ex * (1 - t) + nx * o, y: ey * (1 - t) + ny * o }); } }
   // rebuild occupancy and the changed land
   W.over = OVER = new Map(); W.road = ROAD = new Map(); W.sx = SX; W.sy = SY; W.gvn = GVN; W.dx = DX; W.dy = DY; ACTIVE = W; S.wonders = S.wonders || []; S.boats = S.boats || []; S.boatT = S.boatT || 0; S.treasures = S.treasures || []; S.price = S.price || { food: 1, wood: 1, stone: 1 }; S.trade = S.trade || { n: 0, coins: 0, tax: 0, vol: { food: 0, wood: 0, stone: 0 } }; S.pact = S.pact || {}; S.marketT = S.marketT || 60; S.tradeT = S.tradeT || 120; S.over = S.over || {}; S.road = S.road || []; S.road2 = S.road2 || []; S.wade = S.wade || {}; S.sheep = S.sheep || [];
-  for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2);
+  for (const k in S.over) OVER.set(k, S.over[k]); for (const k of S.road) ROAD.set(k, 1); for (const k of S.road2) ROAD.set(k, 2); if (!S.rv) { S.rv = 1; thinRoads(S); }
   // settlements (older saves had only the first village)
   if (!S.towns) { S.towns = []; const cm = S.b.find(b => b.type === "camp"); if (cm) S.towns.push({ id: 1, name: TOWN_NAMES[S.seed % TOWN_NAMES.length], hall: cm.id, x: cm.x + 1.5, y: cm.y + 1.5, at: 0 }); }
   for (const b of S.b) if (!b.town && S.towns.length) b.town = townAt(S, b.x + b.a / 2, b.y + b.b / 2).id;
@@ -609,13 +609,22 @@ function pickJob(W, p, H) {
     const a = rnd(W) * Math.PI * 2;
     for (let d = 4; d < 44; d++) { const x = home.x + Math.cos(a) * d, y = home.y + Math.sin(a) * d; if (isWater(x, y)) continue; if (hidden(W, x, y)) { job = "scout"; tx = x; ty = y; break; } }
   }
+  if (!job && !p.carry) {
+    // nothing within reach of the village: nobody just stands around. Look farther, plant young trees, or tidy up around the houses.
+    const far = o => free({ l: "trees", c: ckeyOf(o), i: o.i });
+    const t2 = pickNear(W, home.x, home.y, 75, "trees", o => !o.felled && !o.gone && far(o), 5);
+    if (t2 && rnd(W) < .7) { job = "wood"; obj = ref("trees", t2.ch, t2.o); tx = t2.o.x + .5; ty = t2.o.y + .5; }
+    if (!job) { const r2 = pickNear(W, home.x, home.y, 75, "rocks", o => o.stone > 0 && free({ l: "rocks", c: ckeyOf(o), i: o.i }), 4); if (r2 && rnd(W) < .5) { job = "stone"; obj = ref("rocks", r2.ch, r2.o); tx = r2.o.x + .6; ty = r2.o.y + .6; } }
+    if (!job && sea !== "winter" && rnd(W) < .6) { for (let k = 0; k < 6 && !job; k++) { const a = rnd(W) * 6.283, r = 6 + rnd(W) * 16, x = home.x + Math.cos(a) * r, y = home.y + Math.sin(a) * r; if (plantable(W, x, y)) { job = "plant"; obj = null; p.plantAt = { x, y }; tx = x; ty = y; } } }
+    if (!job) { const mine = S.b.filter(b => b.done && b.town === tw.id && !TYPES[b.type].deco && b.type !== "bridge" && b.type !== "field"); if (mine.length) { const b = mine[(rnd(W) * mine.length) | 0], d = doorOf(b); job = "chore"; tx = d.x + (rnd(W) - .5) * 1.5; ty = d.y + .6 + rnd(W) * .8; p.chore = b.type; } }
+  }
   if (!job) {
     const benches = S.b.filter(b => b.done && b.type === "bench");
     if (benches.length && rnd(W) < .4) { const bb = benches[(rnd(W) * benches.length) | 0]; job = "rest"; tx = bb.x + .5; ty = bb.y + 1.1; p.benchSit = true; }
     else { const a = rnd(W) * 6.3, d = 1.5 + rnd(W) * 2.5; job = "rest"; tx = home.x + Math.cos(a) * d; ty = home.y + Math.sin(a) * d + 2; p.benchSit = false; }
   }
   p.job = job; p.obj = obj; if (obj) busy.set(bkey(obj), 1); p.tx = tx; p.ty = ty; p.state = "go";
-  p.act = { fetch: "Fetching materials for a building", construct: "Building", sow: "Plowing and sowing the field", harvest: "Harvesting", wood: "Going to chop wood", stone: "Going to break stone", berries: "Going to pick berries", fish: "Going fishing", scout: "Exploring the land", rest: "Taking a break", plant: "Going to plant a young tree", tend: "Going to tend the sheep", honey: "Going to the beehives", visit: "Walking to " + (p.visitTo || "the other village") + " with a bundle", quarry: "Going to the quarry" }[job];
+  p.act = { chore: "Going to tidy up", fetch: "Fetching materials for a building", construct: "Building", sow: "Plowing and sowing the field", harvest: "Harvesting", wood: "Going to chop wood", stone: "Going to break stone", berries: "Going to pick berries", fish: "Going fishing", scout: "Exploring the land", rest: "Taking a break", plant: "Going to plant a young tree", tend: "Going to tend the sheep", honey: "Going to the beehives", visit: "Walking to " + (p.visitTo || "the other village") + " with a bundle", quarry: "Going to the quarry" }[job];
 }
 // the watchman's next stop: the door of some house or the fire of his village
 function nextRound(W, p) {
@@ -652,7 +661,7 @@ function think(W, p, H) {
   }
   pickJob(W, p, H);
 }
-const WORK = { quarry: 30, visit: 12, trade: 10, wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
+const WORK = { chore: 9, quarry: 30, visit: 12, trade: 10, wood: 18, stone: 24, berries: 12, fish: 25, scout: .5, rest: 8, construct: 6, sow: 12, harvest: 10, fetch: 1, plant: 10, tend: 22, honey: 16 };
 // ---------- walking routes ----------
 // Villagers do not walk in straight lines over lakes, through other villages or over cliffs: long trips (and any trip whose straight
 // line is blocked) follow a route found on the land, around the water and around the squares of villages they are not going to.
@@ -760,7 +769,7 @@ function updatePerson(W, p, H) {
         if (p.job === "fetch") { const s = deref(W, p.obj), k = p.fetchK; const SR = s ? townRes(S, s.town) : S.res; if (s && isSite(s) && (s.need[k] || 0) > 0 && SR[k] > 0) { const n = Math.min(5, s.need[k], SR[k]); SR[k] -= n; s.need[k] -= n; p.carry = { type: k, amt: n, to: s.id }; } p.obj = null; p.state = "idle"; p.t = .3; break; }
         if (p.job === "trade" && p.trade) tradeDeliver(W, p);
         p.goT = 0; p.state = "work"; p.t = WORK[p.job] * (hg ? 1.3 : 1) * (1 - rallyStr(S) * .2);
-        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey", visit: "Chatting in " + (p.visitTo || "the other village"), trade: "Haggling over the price", quarry: "Cutting stone at the quarry" }[p.job];
+        p.act = { wood: "Chopping wood", stone: "Breaking stone", berries: "Picking berries", fish: "Fishing", scout: "Looking around", rest: "Resting", construct: "Building", sow: "Plowing and sowing", harvest: "Harvesting", plant: "Planting a young tree", tend: "Milking the sheep", honey: "Collecting honey", visit: "Chatting in " + (p.visitTo || "the other village"), trade: "Haggling over the price", quarry: "Cutting stone at the quarry", chore: "Tidying up around the " + (TYPES[p.chore] ? TYPES[p.chore].name.toLowerCase() : "house") }[p.job];
         if (p.job === "rest") p.sit = p.benchSit || rnd(W) < .3;
       }
       if (evening(H) || deepP(p, H)) think(W, p, H);
@@ -855,6 +864,23 @@ function findSite(W, type, ax, ay, rmin, rmax, again) {
   }
   if (!best && !again && !T.deco) return findSite(W, type, ax, ay, rmax, rmax + 10, true);
   return best;
+}
+// old saves had blobs of road several tiles wide: thin them once to a path one tile wide (a tile in a 2x2 block goes if its neighbours stay connected)
+function thinRoads(S) {
+  const R = k => ROAD.has(k), key = (x, y) => x + ":" + y;
+  for (let pass = 0; pass < 4; pass++) {
+    let n = 0;
+    for (const k of [...ROAD.keys()].sort()) {
+      if (!ROAD.has(k)) continue; const [x, y] = k.split(":").map(Number);
+      const N = R(key(x, y - 1)), E = R(key(x + 1, y)), So = R(key(x, y + 1)), Wt = R(key(x - 1, y)), NE = R(key(x + 1, y - 1)), SE = R(key(x + 1, y + 1)), SW = R(key(x - 1, y + 1)), NW = R(key(x - 1, y - 1));
+      const blk = (N && E && NE) || (E && So && SE) || (So && Wt && SW) || (Wt && N && NW); if (!blk) continue;
+      const e = [N, E, So, Wt], c = [NE, SE, SW, NW]; let comps = 0; const seen = [false, false, false, false];
+      for (let i = 0; i < 4; i++) { if (!e[i] || seen[i]) continue; comps++; let j = i; seen[j] = true; while (true) { const nx = (j + 1) % 4; if (e[nx] && c[j] && !seen[nx]) { seen[nx] = true; j = nx; } else break; } j = i; while (true) { const pv = (j + 3) % 4; if (e[pv] && c[pv] && !seen[pv]) { seen[pv] = true; j = pv; } else break; } }
+      if (comps <= 1) { ROAD.delete(k); n++; }
+    }
+    if (!n) break;
+  }
+  S.road = S.road.filter(k => ROAD.get(k) === 1); S.road2 = S.road2.filter(k => ROAD.get(k) === 2);
 }
 // roads only grow near a village and only out of the village or out of an existing road, so they never wander through the wild
 const roadZone = (S, x, y) => S.towns.some(t => Math.hypot(t.x - x, t.y - y) < 30);
