@@ -195,7 +195,7 @@ export const TYPES = {
   harbor: { name: "Harbour", a: 3, b: 2, cost: { wood: 90, stone: 15 }, time: 1500, sea: true, d: "A boat shed and a pier. Sailors explore the sea, the islands and the far coasts, and fish on the way.", unlock: "pop10" },
   apiary: { name: "Apiary", a: 2, b: 1, cost: { wood: 20 }, time: 400, d: "Straw beehives. Near flowers they give more honey.", unlock: "flowers" },
   // ---- goods, warmth, repairs, monuments (the economy update) ----
-  woodshed: { name: "Woodshed", a: 2, b: 2, cost: { wood: 60 }, time: 600, craft: "fuel", d: "Logs are split into firewood here. The houses burn it on cold days.", unlock: "harvest" },
+  woodshed: { name: "Woodshed", a: 2, b: 2, cost: { wood: 60 }, time: 600, craft: "fuel", d: "Logs are split into firewood here. The houses burn it on cold days.", unlock: "pop7" },
   granary: { name: "Granary", a: 2, b: 2, cost: { wood: 80, stone: 20 }, time: 900, drop: ["food", "bread"], food: 500, d: "A raised store for grain and bread. Room for 500 more food.", unlock: "harvest" },
   sawmill: { name: "Sawmill", a: 3, b: 2, cost: { wood: 120, stone: 20 }, time: 1200, craft: "planks", d: "Logs are sawn into planks for better houses and great works.", unlock: "pop10" },
   mason:  { name: "Stonemason's Yard", a: 3, b: 2, cost: { wood: 80, stone: 60 }, time: 1200, craft: "cut", d: "Rough stone is cut into blocks for stone houses and monuments.", unlock: "pop12" },
@@ -204,8 +204,8 @@ export const TYPES = {
   market: { name: "Market", a: 3, b: 2, cost: { wood: 120, stone: 40 }, time: 1200, craft: "trade", d: "Stalls under an awning. Goods are sold here for coins and bought with coins. The market keeps its tax.", unlock: "coins" },
   timber: { name: "Timber House", a: 3, b: 3, cost: { planks: 90, stone: 20 }, beds: 4, time: 1500, d: "Walls of sawn planks under a shingle roof. Home for four.", unlock: "planks" },
   stonehouse: { name: "Stone House", a: 3, b: 3, cost: { cut: 80, planks: 30 }, beds: 5, time: 2000, warm: true, d: "Cut stone walls and a slate roof. Warm in winter: it burns half the firewood. Home for five.", unlock: "cut" },
-  statue: { name: "Founder's Statue", a: 2, b: 2, cost: {}, time: 2400, mon: true, stages: [{ cut: 400 }, { cut: 700, planks: 200 }, { cut: 400, coin: 3 }], d: "A stone figure of the first settler on a tall pedestal. People come from far to see it.", unlock: "cut" },
-  belfry: { name: "Bell Tower", a: 2, b: 2, cost: {}, time: 3000, mon: true, stages: [{ cut: 600 }, { cut: 900, planks: 300 }, { cut: 500, planks: 150, coin: 5 }], d: "A tall stone tower with a great bell. Its hours keep the whole village in step: everyone walks a little faster.", unlock: "statue" },
+  statue: { name: "Founder's Statue", a: 2, b: 2, cost: {}, time: 2400, mon: true, stages: [{ cut: 400 }, { cut: 700, planks: 200, coin: 8 }, { cut: 400, coin: 12 }], d: "A stone figure of the first settler on a tall pedestal. People come from far to see it.", unlock: "cut" },
+  belfry: { name: "Bell Tower", a: 2, b: 2, cost: {}, time: 3000, mon: true, stages: [{ cut: 600, coin: 10 }, { cut: 900, planks: 300, coin: 15 }, { cut: 500, planks: 150, coin: 25 }], d: "A tall stone tower with a great bell. Its hours keep the whole village in step: everyone walks a little faster.", unlock: "statue" },
 };
 // the Mayor can order the workshops and houses too; monuments are the villagers' own great works (Book > Projects)
 export const RECIPES = {
@@ -978,7 +978,7 @@ function setOver(W, b, val) {
   W.events.push({ k: "over", x0: b.x - 1, y0: b.y - 1, x1: b.x + b.a + 1, y1: b.y + b.b + 1 });
 }
 function finishUpgrade(W, s) {
-  const S = W.S; s.type = s.upTo; s.upTo = null; s.prog = 1; delete s.need;
+  const S = W.S; s.type = s.upTo; s.upTo = null; s.prog = 1; s.upAt = S.tick; s.wear = 0; delete s.need;
   addLog(W, "A house was rebuilt into " + an(TYPES[s.type].name) + ".");
   W.events.push({ k: "built", b: s });
 }
@@ -1112,7 +1112,7 @@ function planTown(W, T) {
   let beds = 0; for (const b of mine) if (b.done && TYPES[b.type].beds) beds += TYPES[b.type].beds;
   const free = beds - n, R = resOf(S, T), cap = capT(W, T);
   const afford = t => { const k = TYPES[t].cost; return Object.keys(k).every(q => (R[q] || 0) >= k[q] * .6); };
-  const upgrade = (from, to) => { const b = mine.find(q => q.type === from && q.done && !q.upTo); if (!b) return false; occupy(W, b, false); const err = canPlace(W, to, b.x, b.y, false); if (!err) { b.upTo = to; b.prog = 0; b.need = { ...TYPES[to].cost }; b.a = TYPES[to].a; b.b = TYPES[to].b; occupy(W, b, true); addLog(W, "In " + T.name + " the villagers are rebuilding " + an(TYPES[from].name) + " into " + an(TYPES[to].name) + "."); W.events.push({ k: "build", b }); return true; } occupy(W, b, true); return false; };
+  const upgrade = (from, to) => { const b = mine.find(q => q.type === from && q.done && !q.upTo && S.tick - (q.upAt || q.at || 0) > 28800); if (!b) return false; /* a house stands at least two hours before it is rebuilt again */ occupy(W, b, false); const err = canPlace(W, to, b.x, b.y, false); if (!err) { b.upTo = to; b.prog = 0; b.need = { ...TYPES[to].cost }; b.a = TYPES[to].a; b.b = TYPES[to].b; occupy(W, b, true); addLog(W, "In " + T.name + " the villagers are rebuilding " + an(TYPES[from].name) + " into " + an(TYPES[to].name) + "."); W.events.push({ k: "build", b }); return true; } occupy(W, b, true); return false; };
   // houses grow with the village: pit house -> hut -> timber house -> stone house, rebuilt on the spot
   if (S.ms.harvest && free <= 1 && R.wood >= 20 && R.stone >= 4 && upgrade("pit", "hut")) return;
   if (S.ms.planks && afford("timber") && (free <= 2 || R.planks >= capT(W, T) * .4) && upgrade("hut", "timber")) return;
@@ -1139,7 +1139,7 @@ function planTown(W, T) {
   if (S.ms.pop8 && !has("fold") && n >= 8) L.push(["fold", c, 8, 22]);
   if (S.ms.flowers && !has("apiary") && n >= 6) { let fp = null; for (let r = 4; r < 30 && !fp; r += 2) for (let a = 0; a < 6.28; a += .4) { const x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r; if (flowerV(x, y) > .5 && !hidden(W, x, y)) { fp = { x, y }; break; } } if (fp) L.push(["apiary", fp, 0, 6]); }
   // workshops, stores and the market
-  if (S.ms.harvest && n >= 6 && !has("woodshed")) L.push(["woodshed", c, 4, 14]);
+  if (S.ms.pop7 && n >= 6 && !has("woodshed")) L.push(["woodshed", c, 4, 14]);
   if (S.ms.harvest && n >= 9 && has("field") && !has("granary")) L.push(["granary", c, 4, 14]);
   if (S.ms.pop10 && n >= 10 && !has("sawmill")) { const t = near("trees", o => !o.felled, 26); L.push(["sawmill", t ? { x: (t.x + c.x) / 2, y: (t.y + c.y) / 2 } : c, 4, 16]); }
   if (S.ms.pop12 && n >= 12 && has("quarry") && !has("mason")) { const q = mine.find(b => b.type === "quarry"); L.push(["mason", q ? center(q) : c, 3, 12]); }
@@ -1687,13 +1687,14 @@ export function step(W) {
       }
       if (S.towns.length) S.hungry = S.towns.some(t => t.hungry);
     }
-    // firewood: on cold days every house burns it (a stone house half as much); without firewood they burn logs, without logs the village is cold
+    // firewood: every house burns a little for cooking, and much more on cold days (a stone house half as much); without firewood they burn logs, without logs the village is cold
     S.heatT = (S.heatT || 0) + DT; if (S.heatT >= 600) {
       S.heatT = 0; const cold = coldNow(S);
       for (const T of (S.towns.length ? S.towns : [null])) {
         const R = resOf(S, T); let beds = 0; for (const b of S.b) if (b.done && TYPES[b.type].beds && (!T || b.town === T.id)) beds += TYPES[b.type].beds * (TYPES[b.type].warm ? .5 : (b.wear || 0) > .85 ? 1.5 : 1);
         let isCold = false;
-        if (cold) { const need = Math.ceil(beds / 2); if ((R.fuel || 0) >= need) R.fuel -= need; else { const w = (need - (R.fuel || 0)) * 2; R.fuel = 0; if (R.wood >= w) R.wood -= w; else { R.wood = 0; isCold = true; } } }
+        { const need = cold ? Math.ceil(beds / 2) : Math.ceil(beds / 8); // cooking fires all year, real heating in the cold months
+          if ((R.fuel || 0) >= need) R.fuel -= need; else { const w = (need - (R.fuel || 0)) * 2; R.fuel = 0; if (R.wood >= w) R.wood -= w; else { R.wood = 0; isCold = cold; } } }
         const was = T ? T.cold : S.cold; if (isCold && !was) addLog(W, (T ? "In " + T.name + " the" : "The") + " firewood ran out. The houses are cold and everyone works slower.");
         if (T) T.cold = isCold; else S.cold = isCold;
       }
