@@ -139,7 +139,33 @@ function baskets(n){const w=6+n*5,h=7,S=canvasOf(w,h);
   for(let i=0;i<=n;i++){const x0=i*5;for(let x=0;x<5;x++)for(let y=2;y<7;y++)put(S.img,w,x0+x,y,(y+x)%2?[176,132,72]:[150,108,58]);
     for(let x=1;x<4;x++)put(S.img,w,x0+x,1,i%2?[200,60,50]:[90,80,170]);put(S.img,w,x0+2,0,i%2?[220,90,70]:[110,100,190])}
   const r=finishOutline(S);r.ax=w>>1;r.ay=h-1;return r}
-// ---- house / barn ----
+// ---- props of the workshops: a stack of planks, cut blocks, barrels, the market awning ----
+function plankStack(){const w=14,h=8,S=canvasOf(w,h);
+  for(let row=0;row<3;row++){const y0=h-2-row*2,x0=row;for(let x=0;x<12;x++)for(let y=0;y<2;y++)put(S.img,w,x0+x,y0+y,y===0?[224,190,130]:[170,132,84]);put(S.img,w,x0+3,y0,[200,166,110]);put(S.img,w,x0+8,y0,[200,166,110])}
+  const r=finishOutline(S);r.ax=7;r.ay=h-1;return r}
+function blockStack(){const w=13,h=9,S=canvasOf(w,h);
+  for(let row=0;row<2;row++){const y0=h-4-row*4,n=3-row,x0=row*2;for(let i=0;i<n;i++)for(let x=0;x<4;x++)for(let y=0;y<4;y++){const e=x===0||y===0||x===3||y===3;put(S.img,w,x0+i*4+x,y0+y,e?[118,116,112]:(x===1&&y===1?[196,194,188]:[170,168,162]))}}
+  const r=finishOutline(S);r.ax=6;r.ay=h-1;return r}
+function barrels(){const w=15,h=8,S=canvasOf(w,h);
+  for(const x0 of [0,5,10]){for(let x=0;x<5;x++)for(let y=0;y<7;y++){const e=x===0||x===4;let c=e?[96,66,40]:[140,100,60];if(y===1||y===5)c=[70,70,76];if(x===2&&!e&&y!==1&&y!==5)c=[160,118,72];put(S.img,w,x0+x,y+1,c)}}
+  const r=finishOutline(S);r.ax=7;r.ay=h-1;return r}
+function awning(season){const w=26,h=18,S=canvasOf(w,h),snow=PAL[season].snow;
+  for(let y=0;y<9;y++)for(let x=0;x<w;x++){const u=(x-13)/13,top=Math.abs(u)*7;if(y>=top&&y<top+5){const stripe=Math.floor((x+y)/3)%2;let c=stripe?[204,70,56]:[236,230,214];if(snow&&y<top+2)c=SNOW;put(S.img,w,x,y,c)}}
+  for(const x of [1,24])for(let y=8;y<h;y++)put(S.img,w,x,y,[110,76,46]);
+  for(let x=3;x<23;x++)for(let y=12;y<16;y++)put(S.img,w,x,y,(y===12)?[196,160,104]:[150,112,70]);
+  for(let i=0;i<5;i++){const x=4+i*4;put(S.img,w,x,11,[220,80,60]);put(S.img,w,x+1,11,[240,200,80]);put(S.img,w,x+2,11,[90,160,70])}
+  const r=finishOutline(S);r.ax=13;r.ay=h-1;return r}
+// a stone figure on a pedestal
+function statueModel(season){
+  const st=(m)=>(h,px,py)=>mul([170,168,160],m*(.9+ih(px,py)*.2)),dk=(m)=>(h,px,py)=>mul([132,130,124],m*(.9+ih(px,py)*.2));
+  const f=[];
+  box(0,0,2,2,0,4,st(.72),st(1),st(1.08)).forEach(q=>f.push(q));
+  box(.35,.35,1.65,1.65,4,14,dk(.72),dk(1),dk(1.08)).forEach(q=>f.push(q));
+  box(.6,.6,1.4,1.4,14,22,st(.7),st(.98),st(1.05)).forEach(q=>f.push(q));           // body
+  box(.7,.7,1.3,1.3,22,27,st(.72),st(1),st(1.1)).forEach(q=>f.push(q));                // head
+  box(1.3,.8,1.75,1.1,17,20,st(.7),st(.98),st(1.05)).forEach(q=>f.push(q));            // arm pointing
+  const s=render(f,{x0:-.2,y0:-.2,x1:2.2,y1:2.2,zmax:30});s.wins=[];s.chim=null;return s;
+}
 function houseModel(o,season){
   const a=o.a,b=o.b,H=o.H,rr=o.rr,ov=.14,wc=WALL[o.wall],rc=ROOF[o.roof],P=PAL[season],snow=P.snow;
   const rx=o.ridge==="x",span=rx?b/2:a/2,k=(rr+1.2)/(span+ov),ym=b/2,xm=a/2,barn=o.k==="barn";
@@ -302,6 +328,15 @@ const MODELS={
   chapel:{k:"hut",a:4,b:3,H:13,rr:10,ridge:"x",wall:"cream",roof:"slate",nochim:true},
   harbor:{k:"hut",a:3,b:2,H:9,rr:7,ridge:"x",wall:"wood",roof:"slate",nowin:true,nochim:true},
   shed:{k:"hut",a:2,b:1,H:7,rr:5,ridge:"x",wall:"wood",roof:"thatch",nowin:true,nochim:true},
+  woodshed:{k:"hut",a:2,b:2,H:6,rr:5,ridge:"y",wall:"wood",roof:"brown",nowin:true,nochim:true},
+  granary:{k:"hut",a:2,b:2,H:13,rr:7,ridge:"x",wall:"wood",roof:"thatch",nowin:true,nochim:true},
+  sawmill:{k:"hut",a:3,b:2,H:8,rr:7,ridge:"x",wall:"wood",roof:"brown",nowin:true,nochim:true},
+  mason:{k:"hut",a:3,b:2,H:8,rr:6,ridge:"x",wall:"stone",roof:"slate",nowin:true,nochim:true},
+  bakery:{k:"hut",a:3,b:2,H:11,rr:8,ridge:"x",wall:"cream",roof:"red"},
+  brewery:{k:"hut",a:3,b:2,H:11,rr:8,ridge:"x",wall:"wood",roof:"brown"},
+  market:{k:"hut",a:3,b:2,H:4,rr:3,ridge:"x",wall:"wood",roof:"brown",nowin:true,nochim:true},
+  timber:{k:"hut",a:3,b:3,H:12,rr:10,ridge:"y",wall:"wood",roof:"brown"},
+  stonehouse:{k:"hut",a:3,b:3,H:13,rr:10,ridge:"y",wall:"stone",roof:"slate"},
 };
 export function buildingSprites(season){
   const o={};
@@ -309,6 +344,8 @@ export function buildingSprites(season){
   o.mill=millModel({a:3,b:3,H:30,rr:12,roof:"red"},season);o.belltower=spire({w:1.3,H:30,rr:12,wall:"stone",roof:"slate",bell:1,sw:1,cross:1},season);
   o.tower=spire({w:2,H:18,rr:9,wall:"wood",roof:"thatch",legs:1},season);o.skeps=skeps(season);o.sign=innSign(season);
   o.sapling=[spruce(.32,0,season),spruce(.5,1,season),oak(.4,1,season),oak(.62,2,season)];
+  o.statue=statueModel(season);o.belfry=spire({w:2,H:34,rr:11,wall:"stone",roof:"slate",bell:1,sw:1},season);
+  o.planks=plankStack();o.blocks=blockStack();o.barrels=barrels();o.awning=awning(season);
   o.well=wellModel(season);o.tent=tentModel(season);o.rack=rack(season);o.scarecrow=scarecrow(season);o.bench=bench(season);o.torch=torchPost(season);
   return o;
 }

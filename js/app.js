@@ -47,7 +47,7 @@ async function doAct(a) {
   catch (e) { say("Could not reach the server. Try again."); }
   busyAct = false; $("busyact").hidden = true;
 }
-function afterAct(a) { if (a.k === "trek" || a.k === "sail") { exploreMode = false; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "trekcancel") gridSig = ""; if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
+function afterAct(a) { if (a.k === "cfg" || a.k === "buy" || a.k === "sell") { setSig = ""; mktSig = ""; vilSig = ""; } if (a.k === "trek" || a.k === "sail") { exploreMode = false; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "trekcancel") gridSig = ""; if (a.k === "place") { buildType = null; view.ghost = null; showPlace(false); gridSig = ""; } if (a.k === "settle") { view.ghost = null; $("settlebar").hidden = true; mode = "follow"; } refreshSel(); }
 function say(t) { feed("💬", t); }
 // ---------- sandbox persistence ----------
 function saveSandbox(idle) { if (LIVE || !W) return; if (idle && window.requestIdleCallback) { requestIdleCallback(() => saveSandbox(), { timeout: 3000 }); return; } try { localStorage.setItem("uoe2-sandbox", JSON.stringify(M.serialize(W))); } catch (e) { } }
@@ -122,8 +122,8 @@ function fillGrid() {
     g.appendChild(cbtn("Back", "back", 0, () => { gridMode = "main"; buildType = null; view.ghost = null; showPlace(false); gridSig = ""; }));
     for (const t of M.BUILD_MENU) {
       const T = M.TYPES[t], locked = T.unlock && !S.ms[T.unlock]; if (!thumbs[t]) thumbs[t] = G.thumb(t, 44);
-      const cost = Object.entries(T.cost).map(([k, v]) => v + " " + k).join(", ");
-      const short = { pit: "Pit", hut: "Hut", longhouse: "Long", store: "Store", wcut: "Wood", forage: "Forage", fisher: "Fish", quarry: "Quarry", field: "Field", mill: "Mill", fold: "Sheep", apiary: "Bees", well: "Well", tavern: "Tavern", chapel: "Chapel", tower: "Tower", bridge: "Bridge", fill: "Fill", torch: "Torch", bench: "Bench" }[t] || t;
+      const cost = Object.entries(T.cost).map(([k, v]) => v + " " + (M.GOOD_NAME[k] || k).toLowerCase()).join(", ");
+      const short = { pit: "Pit", hut: "Hut", longhouse: "Long", timber: "Timber", stonehouse: "Stone", granary: "Granary", woodshed: "Firewood", sawmill: "Sawmill", mason: "Mason", bakery: "Bakery", brewery: "Brewery", market: "Market", store: "Store", wcut: "Wood", forage: "Forage", fisher: "Fish", quarry: "Quarry", field: "Field", mill: "Mill", fold: "Sheep", apiary: "Bees", well: "Well", tavern: "Tavern", chapel: "Chapel", tower: "Tower", bridge: "Bridge", fill: "Fill", torch: "Torch", bench: "Bench" }[t] || t;
       const c = document.createElement("canvas"); c.width = 44; c.height = 44; c.getContext("2d").drawImage(thumbs[t], 0, 0);
       g.appendChild(cbtn(short, c, 0, () => { buildType = t; if (t === "bridge") toast("", "Tap on the water at the narrow spot where the bridge should go."); if (t === "fill") toast("", "Tap on shallow water right by the shore."); view.ghost = null; showPlace(true); gridSig = ""; selId = 0; selKey = null; }, { on: buildType === t, locked, title: locked ? M.UNLOCK_TEXT[T.unlock] : T.name + " · " + cost }));
     }
@@ -183,9 +183,10 @@ function artCanvas(k, found, maxW, maxH) {
 const dirFrom = (S, x, y) => { const t = S.towns && S.towns[0]; if (!t) return ""; const d = Math.round(Math.hypot(x - t.x, y - t.y)); return d < 10 ? "close to " + t.name : "about " + d + " tiles " + M.compass(x - t.x, y - t.y) + " of " + t.name; };
 function fillBook() {
   const S = W.S; for (const b of $("btabs").children) b.classList.toggle("on", b.dataset.tab === bookTab);
-  for (const t of ["wonders", "treasures", "market", "village"]) $("pane-" + t).hidden = t !== bookTab;
+  for (const t of ["wonders", "treasures", "market", "village", "work", "stock", "prod", "proj"]) $("pane-" + t).hidden = t !== bookTab;
   if (bookTab === "village") { fillVillage(); return; }
   if (bookTab === "market") { fillMarket(); return; }
+  if (bookTab === "work" || bookTab === "stock" || bookTab === "prod" || bookTab === "proj") { fillSettings(bookTab); return; }
   const sig = [bookTab, (S.wonders || []).length, (S.treasures || []).length, S.scrollDone ? 1 : 0, selWonder, selTreasure, M.WONDER_KINDS.length].join("|"); if (sig === bookSig) return; bookSig = sig;
   if (bookTab === "wonders") {
     const total = M.wonderTotal(S), found = new Map((S.wonders || []).map(w => [w.k, w])), list = $("wlist"), det = $("wdetail"); list.textContent = ""; det.textContent = "";
@@ -223,15 +224,66 @@ function fillBook() {
 }
 // ---- village overview sheet (opened from the top bar) ----
 let vilSig = "";
-const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts" };
+const ROLE_NAMES = { wood: "Woodcutters & foresters", food: "Farmers & gatherers", stone: "Stone workers", build: "Builders", scout: "Scouts", craft: "Craftsmen & traders" };
+// ---- the Mayor's settings in the Book: Work, Stock, Production, Projects (per village, percentages, Auto unless changed) ----
+let cfgTown = 0, setSig = "";
+function townSelect(towns, T) { const d = document.createElement("div"); d.className = "tsel"; d.append(document.createTextNode("Village")); const sel = document.createElement("select"); for (const t of towns) { const o = document.createElement("option"); o.value = t.id; o.textContent = t.name; if (t.id === T.id) o.selected = true; sel.appendChild(o); } sel.addEventListener("change", () => { cfgTown = +sel.value; setSig = ""; mktSig = ""; bookSig = ""; fillBook(); }); d.appendChild(sel); return d; }
+function sliderRow(box, name, sub, val, auto, onSet, extra) {
+  const row = elx("div", "srow"), nm = elx("div", "nm"); nm.append(document.createTextNode(name)); if (sub) nm.appendChild(elx("small", null, sub)); if (extra) nm.appendChild(extra); row.appendChild(nm);
+  const r = document.createElement("input"); r.type = "range"; r.min = 0; r.max = 100; r.step = 5; r.value = Math.round(val); r.disabled = auto || !OWNER; const pct = elx("span", "pct", Math.round(val) + "%");
+  r.addEventListener("input", () => pct.textContent = r.value + "%"); r.addEventListener("change", () => onSet(+r.value)); row.append(r, pct); box.appendChild(row); return row;
+}
+function autoBtn(box, auto, onClick, txt) { const b = elx("button", "btn" + (auto ? " on" : ""), auto ? "Auto (tap to set by hand)" : "Set by hand (tap for Auto)"); b.disabled = !OWNER; b.addEventListener("click", onClick); const w = elx("div"); w.style.margin = "4px 0 8px"; w.appendChild(b); if (txt) w.appendChild(elx("p", "meta", txt)); box.appendChild(w); }
+function fillSettings(tab) {
+  const S = W.S, box = $(tab + "body"), towns = S.towns || []; if (!towns.length) { box.textContent = ""; para(box, "Nothing to decide yet.", "meta"); return; }
+  const T = towns.find(t => t.id === cfgTown) || towns[0]; cfgTown = T.id;
+  const R = M.resOf(S, T), ppl = S.people.filter(p => !p.pioneer && M.townOf(W, p).id === T.id), n = ppl.length, mine = S.b.filter(b => b.town === T.id);
+  const sig = [tab, T.id, n, JSON.stringify(T.cfg || 0), M.ALLK.map(k => Math.round((R[k] || 0) / 5)).join(","), mine.filter(b => b.done).length, mine.filter(b => !b.done).map(b => b.type + (b.stage || 0) + Math.round((b.prog || 0) * 20)).join(), ppl.map(p => p.role).sort().join(), Math.floor(S.tick / 120)].join("|"); if (sig === setSig) return; setSig = sig; box.textContent = "";
+  if (towns.length > 1) box.appendChild(townSelect(towns, T));
+  const cfg = T.cfg || {}, set = (key, val) => doAct({ k: "cfg", town: T.id, key, val });
+  if (tab === "work") {
+    const have = {}; for (const p of ppl) have[p.role] = (have[p.role] || 0) + 1; const auto = !cfg.work;
+    autoBtn(box, auto, () => set("work", auto ? Object.fromEntries(M.ROLES.map(k => [k, Math.round(100 * (have[k] || 0) / Math.max(1, n))])) : null), auto ? "The village shares out the work by itself: builders when something is being built, crafters when a workshop has work, the rest gather what is short." : "Shares of the " + n + " villagers. What is left over goes to woodcutting. Craftsmen never exceed the workshops that have work.");
+    let sum = 0; for (const k of M.ROLES) { const v = auto ? Math.round(100 * (have[k] || 0) / Math.max(1, n)) : (cfg.work[k] || 0); sum += auto ? 0 : v; sliderRow(box, ROLE_NAMES[k], (have[k] || 0) + " now" + (k === "craft" ? " · " + mine.filter(b => b.done && M.TYPES[b.type].craft).length + " workshops" : ""), v, auto, nv => set("work", { ...cfg.work, [k]: nv })); }
+    if (!auto) para(box, "Together " + sum + "%" + (sum > 100 ? " — more than 100%: the first trades in the list are filled first." : ""), "meta");
+    const wk = ppl.filter(p => p.work).length; para(box, wk + " of " + n + " have a fixed workplace (a hut, the quarry or a workshop); the rest work from the village hall. Villagers keep their trade for at least an hour unless the village is hungry.", "meta");
+  }
+  if (tab === "stock") {
+    const autoK = !cfg.keep, autoS = !cfg.sell;
+    for (const k of M.ALLK) { const cp = M.capT(W, T, k), v = R[k] || 0, row = elx("div", "srow"), nm = elx("div", "nm"); nm.append(document.createTextNode(M.GOOD_NAME[k]), elx("small", null, Math.round(v) + " of " + cp)); const bar = elx("div", "bar"), f = elx("i", M.KINDS.includes(k) ? "" : "g"); f.style.width = Math.round(100 * Math.min(1, v / cp)) + "%"; bar.appendChild(f); nm.appendChild(bar); row.appendChild(nm); box.appendChild(row); }
+    box.appendChild(elx("h4", null, "Keep at least"));
+    autoBtn(box, autoK, () => set("keep", autoK ? Object.fromEntries(M.KINDS.map(k => [k, k === "food" ? 40 : 25])) : null), "Below this share of the storeroom nothing is turned into goods, sold or spent on great works. Auto: food 40%, wood and stone 25%.");
+    for (const k of M.KINDS) sliderRow(box, M.GOOD_NAME[k], null, autoK ? (k === "food" ? 40 : 25) : (cfg.keep[k] ?? 25), autoK, nv => set("keep", { ...cfg.keep, [k]: nv }));
+    box.appendChild(elx("h4", null, "Sell above"));
+    autoBtn(box, autoS, () => set("sell", autoS ? Object.fromEntries(M.KINDS.map(k => [k, 90])) : null), "Above this share the market worker carries the surplus to the market and sells it for coins (needs a Market). Auto: 90%. What does not fit in the storeroom at all is sold off cheaply anyway.");
+    for (const k of M.KINDS) sliderRow(box, M.GOOD_NAME[k], null, autoS ? 90 : (cfg.sell[k] ?? 90), autoS, nv => set("sell", { ...cfg.sell, [k]: nv }));
+  }
+  if (tab === "prod") {
+    const auto = !cfg.prod, shops = mine.filter(b => b.done && M.TYPES[b.type].craft && M.TYPES[b.type].craft !== "trade");
+    autoBtn(box, auto, () => set("prod", auto ? Object.fromEntries(M.GOODS.map(k => [k, Math.round(100 * M.prodTarget(W, T, k) / M.capT(W, T, k))])) : null), "How full the shelves of each good should be. A workshop works until its good reaches this share of the storeroom, rests, and starts again when a third is gone. Auto: firewood 40% (80% in the cold months), ale 30%, the rest 50% (85% for planks and cut stone while a great work is being built).");
+    for (const k of M.GOODS) { const sh = shops.filter(b => M.TYPES[b.type].craft === k), rc = M.RECIPES[k], st = sh.length ? sh.map(b => M.TYPES[b.type].name + (b.idle ? " (resting)" : ppl.some(p => p.work === b.id) ? " (working)" : " (no worker)")).join(", ") : "no workshop yet"; sliderRow(box, M.GOOD_NAME[k], Math.round(R[k] || 0) + " in store · " + st + " · " + Object.entries(rc.in).map(([a, b]) => b + " " + M.GOOD_NAME[a].toLowerCase()).join(" + ") + " → " + Object.entries(rc.out).map(([a, b]) => b + " " + M.GOOD_NAME[a].toLowerCase()).join(""), auto ? Math.round(100 * M.prodTarget(W, T, k) / M.capT(W, T, k)) : (cfg.prod[k] ?? 50), auto, nv => set("prod", { ...cfg.prod, [k]: nv })); }
+  }
+  if (tab === "proj") {
+    const pj = cfg.proj || {}, order = (pj.order && pj.order.length ? pj.order : Object.keys(M.TYPES).filter(k => M.TYPES[k].mon)), off = pj.off || {};
+    para(box, "Great works. The village raises them by itself, in three stages, from what it can spare once the storeroom holds at least 35% cut stone and " + 16 + " people live there. Each stage waits for its planks, cut stone and coins.", "meta");
+    order.forEach((k, i) => {
+      const MT = M.TYPES[k], b = mine.find(q => q.type === k), locked = MT.unlock && !S.ms[MT.unlock], row = elx("div", "srow"), nm = elx("div", "nm");
+      const st = b ? (b.done ? "Finished." : "Stage " + ((b.stage || 0) + 1) + " of " + MT.stages.length + ", " + Math.round((b.prog || 0) * 100) + "% of the stage." + (Object.entries(b.need || {}).some(([q, v]) => v > 0) ? " Needed: " + Object.entries(b.need).filter(([q, v]) => v > 0).map(([q, v]) => v + " " + (q === "coin" ? "coins" : M.GOOD_NAME[q].toLowerCase())).join(", ") + "." : "")) : locked ? M.UNLOCK_TEXT[MT.unlock] + "." : off[k] ? "Set aside." : "Planned when the village can spare it.";
+      nm.append(document.createTextNode((i + 1) + ". " + MT.name), elx("small", null, MT.d + " Costs in all: " + Object.entries(MT.stages.reduce((a, s2) => { for (const q in s2) a[q] = (a[q] || 0) + s2[q]; return a; }, {})).map(([q, v]) => v + " " + (q === "coin" ? "coins" : M.GOOD_NAME[q].toLowerCase())).join(", ") + "."), elx("small", null, st)); row.appendChild(nm);
+      if (OWNER && !(b && b.done)) { const tb = elx("button", "btn", off[k] ? "Build it" : "Set aside"); tb.addEventListener("click", () => set("proj", { order, off: { ...off, [k]: !off[k] } })); row.appendChild(tb); if (i > 0) { const up = elx("button", "btn", "↑"); up.addEventListener("click", () => { const o2 = order.slice(); [o2[i - 1], o2[i]] = [o2[i], o2[i - 1]]; set("proj", { order: o2, off }); }); row.appendChild(up); } }
+      box.appendChild(row);
+    });
+    if (OWNER && cfg.proj) { const rb = elx("button", "btn", "Back to Auto"); rb.addEventListener("click", () => set("proj", null)); box.appendChild(rb); }
+  }
+}
 let mktSig = "";
 function fillMarket() {
   const S = W.S, box = $("mktbody"), towns = S.towns || [];
-  const sig = [towns.map(t => { const r = M.resOf(S, t); return [Math.round(r.food / 10), Math.round(r.wood / 10), Math.round(r.stone / 10), (t.coin || 0).toFixed(2)].join(","); }).join(";"), S.trade.n, JSON.stringify(S.price), S.people.filter(p => p.trade).length].join("|"); if (sig === mktSig) return; mktSig = sig; box.textContent = "";
+  const sig = [towns.map(t => { const r = M.resOf(S, t); return M.ALLK.map(k => Math.round((r[k] || 0) / 10)).join(",") + (t.coin || 0).toFixed(2); }).join(";"), S.trade.n, JSON.stringify(S.price), S.people.filter(p => p.trade).length, cfgTown, S.b.filter(b => b.done && b.type === "market").length, JSON.stringify(S.mkt || 0)].join("|"); if (sig === mktSig) return; mktSig = sig; box.textContent = "";
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
   if (S.phase !== "settled") { para(box, "There is nothing to trade yet.", "meta"); return; }
   const h = t => box.appendChild(el("h4", null, t));
-  para(box, "What does not fit into a storehouse is sold: 10,000 spare goods bring 5 coins. A village with plenty sends goods to a village that is short, and the price follows supply and demand.", "meta");
+  para(box, "A village with plenty sends goods to a village that is short, and the price follows supply and demand. At a Market the surplus is sold for coins and the Mayor can buy and sell. What does not fit into a storehouse at all is sold off cheaply (10,000 goods bring 5 coins).", "meta");
   h("Prices (coins per 1,000)");
   const stats = el("div", "vstats");
   for (const k of M.KINDS) { const d = el("div", "vs"), pr = S.price[k]; d.append(iconEl(k, 2), el("b", null, pr.toFixed(2)), el("small", null, (pr > 1.25 ? "dear " : pr < .8 ? "cheap " : "fair ") + cap1(k))); stats.appendChild(d); }
@@ -242,6 +294,23 @@ function fillMarket() {
     info.append(el("b", null, T.name + (T.hungry ? " (hungry)" : "")), el("span", "meta", "Food " + Math.round(r.food) + " · Wood " + Math.round(r.wood) + " · Stone " + Math.round(r.stone) + " (room for " + cp + " each)"), el("span", "meta", "Treasury: " + (T.coin || 0).toFixed(2) + " coins"));
     for (const sp of info.querySelectorAll(".meta")) sp.style.display = "block";
     row.appendChild(info); box.appendChild(row);
+  }
+  // the Mayor's trading: at a market, goods are sold for coins (the market keeps 15%) and bought with coins (30% on top)
+  const withMk = towns.filter(T => S.b.some(b => b.done && b.type === "market" && b.town === T.id));
+  h("Buy and sell");
+  if (!withMk.length) para(box, "Build a Market (the villagers raise one once they have coins) and the Mayor can sell goods for coins and buy what the village is short of. The market keeps 15% when selling and adds 30% when buying.", "meta");
+  else {
+    const T = withMk.find(t => t.id === cfgTown) || withMk[0]; cfgTown = T.id;
+    if (withMk.length > 1) box.appendChild(townSelect(withMk, T));
+    para(box, T.name + " has " + (T.coin || 0).toFixed(2) + " coins. Selling pays the price less 15%; buying costs the price plus 30%. The market worker carries the goods.", "meta");
+    const R = M.resOf(S, T);
+    for (const k of M.ALLK) {
+      const pr = S.price[k] || 1, row = el("div", "srow"), nm = el("div", "nm"); nm.append(document.createTextNode(M.GOOD_NAME[k]), el("small", null, Math.round(R[k] || 0) + " in store · " + pr.toFixed(2) + " coins per 1,000 · sell 100 = +" + (pr * .1 * (1 - M.TAX_SELL)).toFixed(3) + " · buy 100 = −" + (pr * .1 * (1 + M.TAX_BUY)).toFixed(3)));
+      row.appendChild(nm);
+      if (OWNER) { const sb = el("button", "btn", "Sell 100"), bb = el("button", "btn", "Buy 100"); sb.disabled = (R[k] || 0) < 100; bb.disabled = (T.coin || 0) < pr * .1 * (1 + M.TAX_BUY); sb.addEventListener("click", () => { doAct({ k: "sell", town: T.id, kind: k, amt: 100 }); mktSig = ""; }); bb.addEventListener("click", () => { doAct({ k: "buy", town: T.id, kind: k, amt: 100 }); mktSig = ""; }); row.append(sb, bb); }
+      box.appendChild(row);
+    }
+    if (S.mkt) para(box, "Sold at the market so far: " + S.mkt.sold + " goods for " + S.mkt.coins.toFixed(2) + " coins · bought: " + S.mkt.bought + " goods for " + S.mkt.spent.toFixed(2) + " coins.", "meta");
   }
   h("Trade");
   const tr = S.trade, onRoad = S.people.filter(p => p.trade).length;
@@ -262,6 +331,7 @@ function fillVillage() {
   const TR = M.totalRes(S);
   for (const [ic, v, l] of [["food", Math.round(TR.food), "Food"], ["wood", Math.round(TR.wood), "Wood"], ["stone", Math.round(TR.stone), "Stone"], ["pop", S.people.length + "/" + M.bedsTotal(W), "Villagers"], ["store", cap, "Storage each"]]) { const d = el("div", "vs"); d.append(iconEl(ic, 2), el("b", null, String(v)), el("small", null, l)); stats.appendChild(d); }
   box.appendChild(stats);
+  if (M.GOODS.some(k => TR[k] > 0)) para(box, "Goods: " + M.GOODS.filter(k => TR[k] > 0).map(k => Math.round(TR[k]) + " " + M.GOOD_NAME[k].toLowerCase()).join(" · ") + " (see Stock)", "meta");
   const h = t => box.appendChild(el("h4", null, t));
   h(towns.length > 1 ? "Settlements" : "Settlement");
   for (const T of towns) {
@@ -459,7 +529,8 @@ function loop(now) {
     else if (e.k === "trek") feed(e.what === "start" ? "🧭" : "🏠", e.what === "start" ? "Expedition set out " + e.dir : "Expedition is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : ""));
     else if (e.k === "boat") { if (e.what === "start") SND.sfx("horn"); feed("⛵", e.what === "start" ? "The boat sailed out" : "The boat is back" + (e.n ? " · " + e.n + " wonder" + (e.n > 1 ? "s" : "") : "")); }
     else if (e.k === "town") feed("🏕️", e.name + " was founded");
-    else if (e.k === "gain" && view.zoom >= 2 && speed <= 20) G.addFloat(e.x, e.y, "+" + e.amt + " " + e.type, e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : "#f08a70");
+    else if (e.k === "gain" && view.zoom >= 2 && speed <= 20) G.addFloat(e.x, e.y, "+" + e.amt + " " + (M.GOOD_NAME[e.type] || e.type).toLowerCase(), e.type === "wood" ? "#e0b070" : e.type === "stone" ? "#d0d0d0" : e.type === "food" ? "#f08a70" : "#e8d8a0");
+    else if (e.k === "coins" && view.zoom >= 2 && speed <= 20) G.addFloat(e.x, e.y, "+" + e.amt.toFixed(2) + " coins", "#f0c860");
   }
   if (mode === "follow") { const wg = W.S.wagon; view.cam.x += (G.sx(wg.x, wg.y) - view.cam.x) * .06; view.cam.y += (G.sy(wg.x, wg.y) - 10 - view.cam.y) * .06; if (W.S.phase === "settled") mode = null; }
   G.frame(now, rdt); townLabels();

@@ -473,7 +473,11 @@ function drawEntities(vis, hour, VWa, VHa) {
   let R0 = S.res; const tier = v => v >= 300 ? 2 : v >= 60 ? 1 : 0;
   for (const b of S.b) {
     R0 = M.townRes(S, b.town);
-    const T = M.TYPES[b.type], info = { t: T.name + (b.done ? "" : " (being built)"), d: b.done ? T.d : "Building site: " + Math.round(b.prog * 100) + "% done." + (b.by === "mayor" ? " Ordered by the Mayor." : " The villagers' own idea."), b: b.id };
+    const T = M.TYPES[b.type], stg = T.stages ? ((b.stage || 0) + Math.min(1, b.prog || 0)) / T.stages.length : null;
+    const info = { t: T.name + (b.done ? "" : " (being built)"), d: b.done ? T.d : (T.stages ? "Stage " + ((b.stage || 0) + 1) + " of " + T.stages.length + ", " + Math.round(stg * 100) + "% in all." + (Object.entries(b.need || {}).filter(([k, v]) => v > 0).length ? " Still needed: " + Object.entries(b.need).filter(([k, v]) => v > 0).map(([k, v]) => v + " " + (k === "coin" ? "coins" : M.GOOD_NAME[k].toLowerCase())).join(", ") + "." : "") : "Building site: " + Math.round(b.prog * 100) + "% done." + (b.by === "mayor" ? " Ordered by the Mayor." : " The villagers' own idea.")), b: b.id };
+    if (b.done && (b.wear || 0) >= .6) info.d += (b.wear >= .85 ? " Badly worn: it needs mending." : " Getting worn; the builders will mend it.");
+    if (b.done && T.craft && T.craft !== "trade") { const rc = M.RECIPES[T.craft], ins = Object.keys(rc.in).map(k => ((b.in && b.in[k]) || 0) + "/" + rc.in[k] + " " + M.GOOD_NAME[k].toLowerCase()).join(", "), out = b.out && Object.entries(b.out).filter(([k, v]) => v > 0).map(([k, v]) => v + " " + M.GOOD_NAME[k].toLowerCase()).join(", "); info.d += " Makes " + Object.entries(rc.out).map(([k, v]) => v + " " + M.GOOD_NAME[k].toLowerCase()).join(", ") + " from " + Object.entries(rc.in).map(([k, v]) => v + " " + M.GOOD_NAME[k].toLowerCase()).join(" and ") + ". In the workshop: " + ins + (out ? "; ready: " + out : "") + (b.idle ? ". Resting: the shelves are full." : "."); }
+    if (b.done && b.type === "market") { const q = Object.entries(b.sellQ || {}).filter(([k, v]) => v > 0), o = Object.entries(b.out || {}).filter(([k, v]) => v > 0); info.d += (q.length ? " For sale: " + q.map(([k, v]) => v + " " + M.GOOD_NAME[k].toLowerCase()).join(", ") + "." : "") + (o.length ? " Bought, waiting to be carried in: " + o.map(([k, v]) => v + " " + M.GOOD_NAME[k].toLowerCase()).join(", ") + "." : ""); }
     if (b.type === "field") {
       if (b.done) { info.d = ["Plowed, waiting to be sown.", "Sown. Small sprouts.", "Growing.", "Ripe! Ready to harvest."][b.stage] + " Crop: " + M.CROPS[b.crop].name + (b.auto ? " (villagers' choice)." : " (Mayor's choice)."); if (b.stage >= 1) spr(ents, SP.bld.scarecrow, b.x + .7, b.y + .7, b.x + b.y + 1.4, null, VWa, VHa); }
       const [x0, y0] = [sx(b.x + b.a / 2, b.y + b.b / 2) - vx0, gyH(b.x + b.a / 2, b.y + b.b / 2) - vy0]; hitsPush([x0 - 24, y0 - 10, x0 + 24, y0 + 10, info]); continue;
@@ -502,13 +506,14 @@ function drawEntities(vis, hour, VWa, VHa) {
       if (b.type === "tavern") spr(ents, SP.bld.sign, b.x + b.a + .2, b.y + b.b - .2, b.x + b.a + b.y + b.b + .1, info, VWa, VHa, bH(b));
       if (b.type === "mill") { const z = bH(b), hx = sx(b.x, b.y) - s.ax + s.hub[0] - vx0, hy = sy(b.x, b.y) - z - s.ay + s.hub[1] - vy0, fast = (b.grind || 0) > W.S.tick; ents.push({ depth: depth + .05, draw: () => drawSails(hx, hy, fast) }); }
       if (b.type === "apiary" && season !== "winter") { const cx = sx(b.x + 1, b.y + .5) - vx0, cy = gyH(b.x + 1, b.y + .5) - vy0 - 8; ents.push({ depth: depth + .1, draw: () => bees(cx, cy) }); }
-      ents.push({ depth, draw: () => ctx.drawImage(s.canvas, X, Y), box: [X, Y, X + s.w, Y + s.h, info] });
+      const worn = (b.wear || 0) >= .6 ? b.wear : 0;
+      ents.push({ depth, draw: () => { ctx.drawImage(s.canvas, X, Y); if (worn) wornMarks(X, Y, s, b, worn); }, box: [X, Y, X + s.w, Y + s.h, info] });
       if (b.type === "torch") ents.push({ depth: depth + .01, draw: () => flame(X + s.flame[0], Y + s.flame[1], hour) });
     } else {
-      const p = Math.max(.12, b.prog), cut = Math.floor(s.h * (1 - p));
+      const p = Math.max(.12, stg != null ? stg : b.prog), cut = Math.floor(s.h * (1 - p));
       ents.push({ depth, draw: () => { ctx.drawImage(s.canvas, 0, cut, s.w, s.h - cut, X, Y + cut, s.w, s.h - cut); scaffold(b); }, box: [X, Y, X + s.w, Y + s.h, info] });
     }
-    const prop = { wcut: [SP.wood[1], 2.5, .7], forage: [SP.food[1], 2.4, 1.2], fisher: [SP.bld.rack, 2.6, .9], quarry: [SP.stone[2], 2.5, .9], store: [SP.wood[tier(R0.wood)], 3.4, 1.4] }[b.type];
+    const prop = { wcut: [SP.wood[1], 2.5, .7], forage: [SP.food[1], 2.4, 1.2], fisher: [SP.bld.rack, 2.6, .9], quarry: [SP.stone[2], 2.5, .9], store: [SP.wood[tier(R0.wood)], 3.4, 1.4], woodshed: [SP.wood[2], 2.4, .8], sawmill: [SP.bld.planks, 3.4, 1.2], mason: [SP.bld.blocks, 3.4, 1.3], brewery: [SP.bld.barrels, 3.4, 1.2], granary: [SP.food[tier(R0.food)], 2.4, 1.1], market: [SP.bld.awning, 1.5, 1.9] }[b.type];
     if (prop && b.done) spr(ents, prop[0], b.x + prop[1], b.y + prop[2], b.x + prop[1] + b.y + prop[2], info, VWa, VHa, bH(b));
   }
   { const WS = wsp();
@@ -570,6 +575,11 @@ function drawSails(hx, hy, fast) {
   for (let q = 0; q < 4; q++) { const th = ang + q * Math.PI / 2, dy = R * Math.cos(th) / 8.94, dz = R * Math.sin(th), ex = -8 * dy, ey = 4 * dy - dz, L = Math.hypot(ex, ey) || 1, ux = ex / L, uy = ey / L, nx = -uy, ny = ux;
     for (let i = 3; i < L; i++) { const x = hx + ux * i, y = hy + uy * i; ctx.fillStyle = "#6e4c30"; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); if (i > 5 && i % 3 !== 0) { ctx.fillStyle = "#e6dcc2"; ctx.fillRect(Math.round(x + nx * 2), Math.round(y + ny * 2), 1, 1); ctx.fillRect(Math.round(x + nx * 3), Math.round(y + ny * 3), 1, 1); ctx.fillStyle = "#b8ac8e"; ctx.fillRect(Math.round(x + nx), Math.round(y + ny), 1, 1); } } }
   ctx.fillStyle = "#3a2a1c"; ctx.fillRect(Math.round(hx) - 1, Math.round(hy) - 1, 3, 3);
+}
+// a worn building: a few dark gaps in the roof and wall
+function wornMarks(X, Y, s, b, w) {
+  const n = w >= .85 ? 7 : 3; ctx.fillStyle = "rgba(40,28,20,.75)";
+  for (let i = 0; i < n; i++) { const h = M.ih(b.id * 7 + i, i * 3), v = M.ih(i * 5, b.id + i); ctx.fillRect(Math.round(X + 4 + h * (s.w - 8)), Math.round(Y + 3 + v * (s.h * .55)), 2, 1); }
 }
 function scaffold(b) {
   ctx.fillStyle = "#8a6038";
